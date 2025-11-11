@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Driving Game with Headlights</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #222; }
+    canvas { display: block; }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-family: sans-serif;
+      font-size: 20px;
+      background: rgba(0,0,0,0.4);
+      color: lime;
+      padding: 6px 12px;
+      border-radius: 8px;
+      z-index: 100;
+      pointer-events: none;
+    }
+    #backButton {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      background: #333;
+      padding: 10px 20px;
+      text-decoration: none;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 18px;
+      z-index: 200;
+    }
+    #backButton:hover { background: #555; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="hud"></div>
+<a id="backButton" href="index.html">Go Back</a>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let keys = {};
+document.addEventListener("keydown", (e) => {
+  if (e.key === "l") car.headlightsOn = !car.headlightsOn;
+  keys[e.key] = true;
+});
+document.addEventListener("keyup", (e) => keys[e.key] = false);
+
+const car = {
+  x: 0,
+  y: 0,
+  angle: 0,
+  speed: 0,
+  maxSpeed: 3,
+  width: 30,
+  height: 15,
+  headlightsOn: true
+};
+
+let pin = null;
+const roads = [];
+const roadWidth = 80;
+
+function createRoads(count) {
+  let x = 0, y = 0;
+  for (let i = 0; i < count; i++) {
+    const dir = Math.floor(Math.random() * 4);
+    let dx = 0, dy = 0;
+    if (dir === 0) dy = -100;
+    if (dir === 1) dx = 100;
+    if (dir === 2) dy = 100;
+    if (dir === 3) dx = -100;
+    roads.push({ x1: x, y1: y, x2: x + dx, y2: y + dy });
+    x += dx;
+    y += dy;
+  }
+}
+
+function pointOnRoad(px, py) {
+  for (const r of roads) {
+    const dx = r.x2 - r.x1;
+    const dy = r.y2 - r.y1;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    const ux = dx / len, uy = dy / len;
+    const proj = ((px - r.x1)*ux + (py - r.y1)*uy);
+    if (proj >= 0 && proj <= len) {
+      const cx = r.x1 + proj*ux;
+      const cy = r.y1 + proj*uy;
+      if (Math.hypot(px-cx, py-cy) < roadWidth/2) return true;
+    }
+  }
+  return false;
+}
+
+function drawRoads(camX, camY) {
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = roadWidth;
+  ctx.lineCap = "round";
+  for (const r of roads) {
+    ctx.beginPath();
+    ctx.moveTo(r.x1 - camX, r.y1 - camY);
+    ctx.lineTo(r.x2 - camX, r.y2 - camY);
+    ctx.stroke();
+  }
+}
+
+function drawCar(x, y, angle, color, camX, camY) {
+  ctx.save();
+  ctx.translate(x - camX, y - camY);
+  ctx.rotate(angle);
+  ctx.fillStyle = color;
+  ctx.fillRect(-15, -7, 30, 15);
+  ctx.restore();
+}
+
+function drawHeadlights(camX, camY) {
+  if (!car.headlightsOn) return;
+  ctx.save();
+  ctx.translate(car.x - camX, car.y - camY);
+  ctx.rotate(car.angle);
+  const grd = ctx.createRadialGradient(0, 0, 0, 200, 0, 300);
+  grd.addColorStop(0, 'rgba(255,255,200,0.4)');
+  grd.addColorStop(1, 'rgba(255,255,200,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.moveTo(0, -50);
+  ctx.lineTo(300, -100);
+  ctx.lineTo(300, 100);
+  ctx.lineTo(0, 50);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+const traffic = [];
+
+function createTraffic(count) {
+  for (let i=0;i<count;i++){
+    traffic.push({ index:i % roads.length, t:Math.random(), speed:0.01 + Math.random()*0.01, color:"#ff4444" });
+  }
+}
+
+function updateTraffic() {
+  for (let carT of traffic) {
+    const r = roads[carT.index];
+    carT.t += carT.speed;
+    if (carT.t >= 1) {
+      carT.t = 0;
+      carT.index = (carT.index + 1) % roads.length;
+    }
+  }
+}
+
+function isInHeadlightCone(x, y){
+  const dx = x - car.x;
+  const dy = y - car.y;
+  const dist = Math.hypot(dx, dy);
+  if(dist>300) return false;
+  const angleToTarget = Math.atan2(dy, dx);
+  let diff = angleToTarget - car.angle;
+  diff = (diff + Math.PI*3)%(Math.PI*2) - Math.PI;
+  return Math.abs(diff)<0.3;
+}
+
+function drawTraffic(camX, camY){
+  for (let tCar of traffic){
+    const r = roads[tCar.index];
+    const x = r.x1 + (r.x2 - r.x1) * tCar.t;
+    const y = r.y1 + (r.y2 - r.y1) * tCar.t;
+    const angle = Math.atan2(r.y2 - r.y1, r.x2 - r.x1);
+
+    if(car.headlightsOn && isInHeadlightCone(x,y)){
+      const randIndex = Math.floor(Math.random()*roads.length);
+      tCar.index = randIndex;
+      tCar.t = Math.random();
+      continue;
+    }
+
+    drawCar(x, y, angle, tCar.color, camX, camY);
+    if(Math.hypot(car.x-x, car.y-y)<20) car.speed=0;
+  }
+}
+
+function updateCar(){
+  let nextX = car.x + Math.cos(car.angle)*car.speed;
+  let nextY = car.y + Math.sin(car.angle)*car.speed;
+  if(pointOnRoad(nextX,nextY)){
+    car.x = nextX;
+    car.y = nextY;
+  } else {
+    car.speed = 0;
+  }
+
+  if(keys["ArrowUp"]||keys["w"]) car.speed = Math.min(car.maxSpeed, car.speed+0.1);
+  else car.speed *= 0.95;
+
+  if(keys["ArrowLeft"]||keys["a"]) car.angle -= 0.04;
+  if(keys["ArrowRight"]||keys["d"]) car.angle += 0.04;
+
+  if(keys["p"]){ keys["p"]=false; pin={x:car.x,y:car.y}; }
+  if(keys["t"] && pin){ keys["t"]=false; car.x=pin.x; car.y=pin.y; car.speed=0; }
+}
+
+function drawMinimap(camX, camY){
+  const scale=0.05;
+  const mapSize=200;
+  const offsetX=10;
+  const offsetY=10;
+
+  ctx.fillStyle="#111";
+  ctx.fillRect(offsetX, offsetY, mapSize, mapSize);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(offsetX, offsetY, mapSize, mapSize);
+  ctx.clip();
+
+  const centerX = offsetX + mapSize/2;
+  const centerY = offsetY + mapSize/2;
+
+  ctx.strokeStyle="#555";
+  ctx.lineWidth=2;
+  for(const r of roads){
+    ctx.beginPath();
+    ctx.moveTo(centerX+(r.x1-car.x)*scale, centerY+(r.y1-car.y)*scale);
+    ctx.lineTo(centerX+(r.x2-car.x)*scale, centerY+(r.y2-car.y)*scale);
+    ctx.stroke();
+  }
+
+  for(let tCar of traffic){
+    const r = roads[tCar.index];
+    const x = r.x1 + (r.x2 - r.x1) * tCar.t;
+    const y = r.y1 + (r.y2 - r.y1) * tCar.t;
+    ctx.fillStyle="#f00";
+    ctx.beginPath();
+    ctx.arc(centerX+(x-car.x)*scale, centerY+(y-car.y)*scale, 2, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  if(pin){
+    ctx.fillStyle="red";
+    ctx.beginPath();
+    ctx.arc(centerX+(pin.x-car.x)*scale, centerY+(pin.y-car.y)*scale, 5, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle="lime";
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 5, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function gameLoop(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  updateCar();
+  updateTraffic();
+
+  const camX = car.x - canvas.width/2;
+  const camY = car.y - canvas.height/2;
+
+  drawRoads(camX, camY);
+  drawHeadlights(camX, camY);
+  drawTraffic(camX, camY);
+  drawCar(car.x, car.y, car.angle, "#00ff00", camX, camY);
+  drawMinimap(camX, camY);
+
+  requestAnimationFrame(gameLoop);
+}
+
+createRoads(5280);
+createTraffic(200);
+gameLoop();
+</script>
+</body>
+</html>
