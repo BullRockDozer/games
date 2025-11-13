@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Mining Game - Double Click to Make Gold Block</title>
+<title>Mining Game with Saves</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
-body { margin: 0; overflow: hidden; }
+body { margin: 0; overflow: hidden; background: #000; }
 canvas { background: skyblue; display: block; }
 #hud {
   position: absolute;
@@ -19,11 +19,28 @@ canvas { background: skyblue; display: block; }
   z-index: 100;
   pointer-events: none;
 }
-#backButton {
+button {
+  cursor: pointer;
+}
+#menu {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%,-50%);
+  background: rgba(20,20,20,0.9);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  font-family: sans-serif;
+  display: none;
+  z-index: 999;
+}
+#menu input { margin: 5px; padding: 5px; }
+#menu button { margin: 5px; padding: 5px 10px; border-radius: 6px; background:#333; color:white; }
+#backButton, #saveButton, #loadButton {
   position: absolute;
   bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
   color: white;
   background: #333;
   padding: 10px 20px;
@@ -33,202 +50,278 @@ canvas { background: skyblue; display: block; }
   font-size: 18px;
   z-index: 200;
 }
-#backButton:hover { background: #555; }
+#backButton:hover, #saveButton:hover, #loadButton:hover { background: #555; }
+#backButton { left: 50%; transform: translateX(-50%); }
+#saveButton { right: 50%; transform: translateX(-150%); }
+#loadButton { left: 50%; transform: translateX(150%); }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="hud" style="display:none">Gold: 0 💰</div>
 <a id="backButton" href="index.html">Go Back</a>
+<button id="saveButton">Save</button>
+<button id="loadButton">Load</button>
+
+<div id="menu"></div>
 
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const menu = document.getElementById('menu');
+const saveBtn = document.getElementById('saveButton');
+const loadBtn = document.getElementById('loadButton');
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', resize); resize();
 
 const BLOCK_SIZE = 32;
-const WORLD_WIDTH = 500;
-const WORLD_HEIGHT = 500;
+const WORLD_WIDTH = 200;
+const WORLD_HEIGHT = 200;
 
 let world = [];
-for(let y=0;y<WORLD_HEIGHT;y++){
-    let row = [];
-    for(let x=0;x<WORLD_WIDTH;x++){
-        if(y===WORLD_HEIGHT-1) row.push("bedrock");
-        else if(Math.random()<0.05) row.push("gold");
-        else row.push("dirt");
-    }
-    world.push(row);
-}
-// Clear top rows
-for(let y=0;y<5;y++) for(let x=0;x<WORLD_WIDTH;x++) world[y][x]="air";
-
-let player = { x: 250*BLOCK_SIZE, y:4*BLOCK_SIZE, vx:0, vy:0, width:BLOCK_SIZE, height:BLOCK_SIZE, onGround:false };
 let goldCount = 0;
-const keys = {};
-document.addEventListener('keydown', e=>keys[e.key.toLowerCase()]=true);
-document.addEventListener('keyup', e=>keys[e.key.toLowerCase()]=false);
-let camera = {x:0, y:0};
+let player = { x: 100*BLOCK_SIZE, y:4*BLOCK_SIZE, vx:0, vy:0, width:BLOCK_SIZE, height:BLOCK_SIZE, onGround:false };
+let camera = {x:0,y:0};
+let keys = {};
+let gameLoaded = false;
+let currentSaveName = null;
 
-let lastClick = { bx: null, by: null, time: 0 };
+document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-function getCanvasMousePos(e){
-    const rect=canvas.getBoundingClientRect();
-    const clientX = e.clientX ?? (e.touches && e.touches[0] && e.touches[0].clientX);
-    const clientY = e.clientY ?? (e.touches && e.touches[0] && e.touches[0].clientY);
-    if(clientX==null || clientY==null) return null;
-    return { x: clientX - rect.left, y: clientY - rect.top };
+function makeWorld() {
+  let w = [];
+  for (let y = 0; y < WORLD_HEIGHT; y++) {
+    let row = [];
+    for (let x = 0; x < WORLD_WIDTH; x++) {
+      if (y === WORLD_HEIGHT - 1) row.push("bedrock");
+      else if (Math.random() < 0.05) row.push("gold");
+      else row.push("dirt");
+    }
+    w.push(row);
+  }
+  for (let y = 0; y < 5; y++)
+    for (let x = 0; x < WORLD_WIDTH; x++) w[y][x] = "air";
+  return w;
 }
 
+function newGame() {
+  world = makeWorld();
+  goldCount = 0;
+  player = { x: 100*BLOCK_SIZE, y:4*BLOCK_SIZE, vx:0, vy:0, width:BLOCK_SIZE, height:BLOCK_SIZE, onGround:false };
+  gameLoaded = false;
+  currentSaveName = null;
+}
+
+function saveGame(name) {
+  const data = {
+    world: world,
+    player: player,
+    goldCount: goldCount
+  };
+  localStorage.setItem("save_"+name, JSON.stringify(data));
+}
+
+function loadGame(name) {
+  const data = JSON.parse(localStorage.getItem("save_"+name));
+  if (!data) return false;
+  world = data.world;
+  player = data.player;
+  goldCount = data.goldCount;
+  gameLoaded = true;
+  currentSaveName = name;
+  return true;
+}
+
+function deleteGame(name) {
+  localStorage.removeItem("save_"+name);
+  showMainMenu();
+}
+
+function showSaveMenu() {
+  menu.innerHTML = `<h2>Save Game</h2>
+  <input id="savename" placeholder="Save name" />
+  <button onclick="confirmSave()">Save</button>
+  <button onclick="closeMenu()">Cancel</button>`;
+  menu.style.display = 'block';
+}
+function confirmSave() {
+  const name = document.getElementById('savename').value.trim();
+  if (!name) return;
+  saveGame(name);
+  closeMenu();
+}
+function showLoadMenu() {
+  let saves = Object.keys(localStorage).filter(k=>k.startsWith("save_"));
+  let html = `<h2>Load / Delete Save</h2>`;
+  if (saves.length===0) html += `<p>No saves found.</p>`;
+  for (let s of saves) {
+    const n = s.replace("save_","");
+    html += `<div>
+      <button onclick="loadSelected('${n}')">Load ${n}</button>
+      <button onclick="deleteGame('${n}')">Delete</button>
+    </div>`;
+  }
+  html += `<button onclick="closeMenu()">Cancel</button>`;
+  menu.innerHTML = html;
+  menu.style.display = 'block';
+}
+function loadSelected(n) {
+  loadGame(n);
+  closeMenu();
+}
+function closeMenu() {
+  menu.style.display = 'none';
+}
+function showMainMenu() {
+  location.href = "index.html";
+}
+
+saveBtn.onclick = showSaveMenu;
+loadBtn.onclick = showLoadMenu;
+
+function getBlock(x, y) {
+  return world[y] && world[y][x];
+}
+function setBlock(x, y, v) {
+  if (world[y]) world[y][x] = v;
+}
+
+// --- Click to toggle block ---
+let lastClick = {bx:null,by:null,time:0};
 canvas.addEventListener('click', e=>{
-    const pos = getCanvasMousePos(e);
-    if(!pos) return;
-    const mx = pos.x + camera.x;
-    const my = pos.y + camera.y;
-    const bx = Math.floor(mx/BLOCK_SIZE);
-    const by = Math.floor(my/BLOCK_SIZE);
-    if(by<0 || by>=WORLD_HEIGHT || bx<0 || bx>=WORLD_WIDTH) return;
-
-    const now = Date.now();
-    // Double-click on same block within 400ms → gold block
-    if(lastClick.bx === bx && lastClick.by === by && now - lastClick.time < 400){
-        world[by][bx] = "gold";
-        lastClick.time = 0; // reset to avoid triple chaining
-        return;
-    }
-    lastClick = { bx, by, time: now };
-
-    if(world[by][bx]!=="bedrock"){
-        if(world[by][bx]==="gold") goldCount++;
-        world[by][bx] = world[by][bx]==="air" ? "dirt" : "air";
-    }
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX+camera.x;
+  const my=e.clientY+camera.y;
+  const bx=Math.floor(mx/BLOCK_SIZE);
+  const by=Math.floor(my/BLOCK_SIZE);
+  if(by<0||by>=WORLD_HEIGHT||bx<0||bx>=WORLD_WIDTH)return;
+  if(gameLoaded) return; // disable building in loaded games
+  const now=Date.now();
+  if(lastClick.bx===bx && lastClick.by===by && now-lastClick.time<400){
+    world[by][bx]="gold";
+    lastClick.time=0;
+    return;
+  }
+  lastClick={bx,by,time:now};
+  if(world[by][bx]!=="bedrock"){
+    if(world[by][bx]==="gold") goldCount++;
+    world[by][bx]=world[by][bx]==="air"?"dirt":"air";
+  }
 });
 
-// Ladder placement
 document.addEventListener('keydown', e=>{
-    const key=e.key.toLowerCase();
-    if(key==='l' || key==='k'){
-        const bx=Math.floor((player.x+player.width/2)/BLOCK_SIZE);
-        const byBelow=Math.floor((player.y+player.height)/BLOCK_SIZE);
-        const byAbove=Math.floor((player.y-1)/BLOCK_SIZE);
-        if(key==='l' && world[byBelow] && world[byBelow][bx]==="air") world[byBelow][bx]="ladder";
-        if(key==='k' && world[byAbove] && world[byAbove][bx]==="air") world[byAbove][bx]="ladder";
-        return;
+  const k=e.key.toLowerCase();
+  const bx=Math.floor((player.x+player.width/2)/BLOCK_SIZE);
+  const byBelow=Math.floor((player.y+player.height)/BLOCK_SIZE);
+  const byAbove=Math.floor((player.y-1)/BLOCK_SIZE);
+  const py=Math.floor((player.y+player.height/2)/BLOCK_SIZE);
+  if((k==='l'||k==='k') && !gameLoaded){
+    if(k==='l' && world[byBelow] && world[byBelow][bx]==="air") setBlock(bx,byBelow,"ladder");
+    if(k==='k' && world[byAbove] && world[byAbove][bx]==="air") setBlock(bx,byAbove,"ladder");
+  }
+  if(k==='s'){
+    // Dig block directly under player
+    const below = world[byBelow] && world[byBelow][bx];
+    if(below && below!=="air" && below!=="bedrock"){
+      if(below==="gold") goldCount++;
+      world[byBelow][bx] = "air";
     }
-    if(key==='s'){
-        const bx=Math.floor((player.x+player.width/2)/BLOCK_SIZE);
-        const byBelow=Math.floor((player.y+player.height)/BLOCK_SIZE);
-        const py=Math.floor((player.y+player.height/2)/BLOCK_SIZE);
-        const touchingLadder=world[py] && world[py][bx]==="ladder";
-        if(!touchingLadder){
-            if(world[byBelow] && world[byBelow][bx]!=="air" && world[byBelow][bx]!=="bedrock"){
-                if(world[byBelow][bx]==="gold") goldCount++;
-                world[byBelow][bx]="air";
-            }
-        }
-    }
+  }
 });
 
-function gameLoop(){
-    requestAnimationFrame(gameLoop);
+function loop() {
+  requestAnimationFrame(loop);
 
-    // Horizontal movement
-    player.vx=0;
-    if(keys['a']) player.vx=-3;
-    if(keys['d']) player.vx=3;
+  player.vx = 0;
+  if(keys['a']) player.vx=-3;
+  if(keys['d']) player.vx=3;
 
-    // Ladder check
-    const px=Math.floor((player.x+player.width/2)/BLOCK_SIZE);
-    const py=Math.floor((player.y+player.height/2)/BLOCK_SIZE);
-    const touchingLadder = world[py] && world[py][px]==="ladder";
+  const px=Math.floor((player.x+player.width/2)/BLOCK_SIZE);
+  const py=Math.floor((player.y+player.height/2)/BLOCK_SIZE);
+  const touchingLadder=world[py] && world[py][px]==="ladder";
 
-    if(touchingLadder && keys['w']) player.vy=-3;
-    else if(touchingLadder && keys['s']) player.vy=3;
-    else{
-        if(!touchingLadder) player.vy+=0.5;
-        else player.vy=0;
-        if(keys['w'] && player.onGround) player.vy=-10;
+  if(touchingLadder && keys['w']) player.vy=-3;
+  else if(touchingLadder && keys['s']) player.vy=3;
+  else{
+    if(!touchingLadder) player.vy+=0.5;
+    else player.vy=0;
+    if(keys['w'] && player.onGround) player.vy=-10;
+  }
+
+  player.onGround=false;
+  let nextX=player.x+player.vx;
+  let nextY=player.y+player.vy;
+
+  const horizLeft=Math.floor(nextX/BLOCK_SIZE);
+  const horizRight=Math.floor((nextX+player.width-1)/BLOCK_SIZE);
+  const vertTop=Math.floor(player.y/BLOCK_SIZE);
+  const vertBottom=Math.floor((player.y+player.height-1)/BLOCK_SIZE);
+  let collidedX=false;
+  for(let y=vertTop;y<=vertBottom;y++){
+    for(let x=horizLeft;x<=horizRight;x++){
+      const b=getBlock(x,y);
+      if(b && b!=="air" && b!=="ladder"){
+        if(player.vx>0) nextX=x*BLOCK_SIZE-player.width;
+        if(player.vx<0) nextX=(x+1)*BLOCK_SIZE;
+        collidedX=true;
+      }
     }
-    player.onGround=false;
+  }
+  if(collidedX) player.vx=0;
 
-    // Horizontal collision
-    let nextX=player.x+player.vx;
-    let nextY=player.y+player.vy;
-    const horizLeft=Math.floor(nextX/BLOCK_SIZE);
-    const horizRight=Math.floor((nextX+player.width-1)/BLOCK_SIZE);
-    const vertTop=Math.floor(player.y/BLOCK_SIZE);
-    const vertBottom=Math.floor((player.y+player.height-1)/BLOCK_SIZE);
-    let collidedX=false;
-    for(let y=vertTop;y<=vertBottom;y++){
-        for(let x=horizLeft;x<=horizRight;x++){
-            const block = world[y] && world[y][x];
-            if(block && block!=="air" && block!=="ladder"){
-                if(player.vx>0) nextX=x*BLOCK_SIZE-player.width;
-                if(player.vx<0) nextX=(x+1)*BLOCK_SIZE;
-                collidedX=true;
-            }
-        }
+  const vertLeft=Math.floor(nextX/BLOCK_SIZE);
+  const vertRight=Math.floor((nextX+player.width-1)/BLOCK_SIZE);
+  const horizTop=Math.floor(nextY/BLOCK_SIZE);
+  const horizBottom=Math.floor((nextY+player.height-1)/BLOCK_SIZE);
+  let collidedY=false;
+  for(let y=horizTop;y<=horizBottom;y++){
+    for(let x=vertLeft;x<=vertRight;x++){
+      const b=getBlock(x,y);
+      if(b && b!=="air" && b!=="ladder"){
+        if(player.vy>0){ nextY=y*BLOCK_SIZE-player.height; player.onGround=true; }
+        if(player.vy<0) nextY=(y+1)*BLOCK_SIZE;
+        collidedY=true;
+      }
     }
-    if(collidedX) player.vx=0;
+  }
+  if(collidedY) player.vy=0;
 
-    // Vertical collision
-    const vertLeft=Math.floor(nextX/BLOCK_SIZE);
-    const vertRight=Math.floor((nextX+player.width-1)/BLOCK_SIZE);
-    const horizTop=Math.floor(nextY/BLOCK_SIZE);
-    const horizBottom=Math.floor((nextY+player.height-1)/BLOCK_SIZE);
-    let collidedY=false;
-    for(let y=horizTop;y<=horizBottom;y++){
-        for(let x=vertLeft;x<=vertRight;x++){
-            const block = world[y] && world[y][x];
-            if(block && block!=="air" && block!=="ladder"){
-                if(player.vy>0){ nextY=y*BLOCK_SIZE-player.height; player.onGround=true; }
-                if(player.vy<0) nextY=(y+1)*BLOCK_SIZE;
-                collidedY=true;
-            }
-        }
+  player.x=nextX;
+  player.y=nextY;
+
+  camera.x=player.x-canvas.width/2+player.width/2;
+  camera.y=player.y-canvas.height/2+player.height/2;
+  camera.x=Math.max(0,Math.min(camera.x,WORLD_WIDTH*BLOCK_SIZE-canvas.width));
+  camera.y=Math.max(0,Math.min(camera.y,WORLD_HEIGHT*BLOCK_SIZE-canvas.height));
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const startX=Math.floor(camera.x/BLOCK_SIZE);
+  const startY=Math.floor(camera.y/BLOCK_SIZE);
+  const endX=startX+Math.ceil(canvas.width/BLOCK_SIZE);
+  const endY=startY+Math.ceil(canvas.height/BLOCK_SIZE);
+
+  for(let y=startY;y<=endY;y++){
+    for(let x=startX;x<=endX;x++){
+      const b=getBlock(x,y);
+      if(!b) continue;
+      if(b==="dirt"){ctx.fillStyle="#8B4513"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE);}
+      else if(b==="gold"){ctx.fillStyle="gold"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE);}
+      else if(b==="bedrock"){ctx.fillStyle="#444"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE);}
+      else if(b==="ladder"){ctx.font="24px Arial"; ctx.fillText("🪜",x*BLOCK_SIZE-camera.x+BLOCK_SIZE/2,y*BLOCK_SIZE-camera.y+BLOCK_SIZE/2);}
     }
-    if(collidedY) player.vy=0;
+  }
 
-    player.x=nextX;
-    player.y=nextY;
+  ctx.fillStyle="yellow";
+  ctx.fillRect(player.x-camera.x,player.y-camera.y,player.width,player.height);
 
-    // Camera
-    camera.x=player.x-canvas.width/2+player.width/2;
-    camera.y=player.y-canvas.height/2+player.height/2;
-    camera.x=Math.max(0,Math.min(camera.x,WORLD_WIDTH*BLOCK_SIZE-canvas.width));
-    camera.y=Math.max(0,Math.min(camera.y,WORLD_HEIGHT*BLOCK_SIZE-canvas.height));
-
-    // Draw
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    const startX=Math.floor(camera.x/BLOCK_SIZE);
-    const startY=Math.floor(camera.y/BLOCK_SIZE);
-    const endX=startX+Math.ceil(canvas.width/BLOCK_SIZE);
-    const endY=startY+Math.ceil(canvas.height/BLOCK_SIZE);
-    ctx.font="28px Arial";
-    ctx.textAlign="center";
-    ctx.textBaseline="middle";
-
-    for(let y=startY;y<=endY;y++){
-        for(let x=startX;x<=endX;x++){
-            if(world[y] && world[y][x]){
-                const block=world[y][x];
-                if(block==="dirt"){ ctx.fillStyle="#8B4513"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE); }
-                else if(block==="gold"){ ctx.fillStyle="gold"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE); }
-                else if(block==="bedrock"){ ctx.fillStyle="#444"; ctx.fillRect(x*BLOCK_SIZE-camera.x,y*BLOCK_SIZE-camera.y,BLOCK_SIZE,BLOCK_SIZE); }
-                else if(block==="ladder"){ ctx.fillText("🪜",x*BLOCK_SIZE-camera.x+BLOCK_SIZE/2,y*BLOCK_SIZE-camera.y+BLOCK_SIZE/2); }
-            }
-        }
-    }
-
-    // Player
-    ctx.fillStyle="yellow";
-    ctx.fillRect(player.x-camera.x,player.y-camera.y,player.width,player.height);
-
-    hud.textContent=`Gold: ${goldCount} 💰`;
+  hud.style.display="block";
+  hud.textContent=`Gold: ${goldCount} 💰`;
 }
-gameLoop();
+
+newGame();
+loop();
 </script>
 </body>
 </html>
