@@ -1,58 +1,161 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Addictive Shooter Game + Black Hole Power</title>
+<title>Addictive Shooter Game + Inventory</title>
 <style>
-body { margin:0; overflow:hidden; background:#111; font-family:sans-serif; }
-canvas { display:block; margin:auto; background:#222; }
-#score {
-  position:absolute; top:10px; left:10px; 
-  color:white; font-size:30px; font-weight:bold;
-  transition: transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
-}
-#score.pop {
-  transform: scale(1.6);
-  color: gold;
-  text-shadow: 0 0 20px yellow;
-}
-#pausedText {
-  position:absolute; 
-  top:50%; left:50%; 
-  transform:translate(-50%, -50%);
-  text-align:center;
-  color:white;
-  display:none;
-}
-#pausedText h1 { font-size:80px; margin:0; }
-#pausedText p { font-size:24px; margin:10px 0 0 0; }
-#goBack {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: white;
-  background: #333;
-  padding: 10px 20px;
-  text-decoration: none;
-  border-radius: 8px;
-  font-family: sans-serif;
-  font-size: 18px;
-}
-#goBack:hover { background: #555; }
+  body { margin:0; overflow:hidden; background:#111; font-family:sans-serif; }
+  canvas { display:block; margin:auto; background:#222; }
+
+  #hud {
+    position:absolute; left:10px; top:10px; right:10px; pointer-events:none;
+  }
+
+  #score {
+    pointer-events:auto;
+    position:absolute; top:10px; left:10px; 
+    color:white; font-size:30px; font-weight:bold;
+    transition: transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
+  }
+  #score.pop { transform: scale(1.6); color: gold; text-shadow: 0 0 20px yellow; }
+
+  #pausedText {
+    position:absolute; 
+    top:50%; left:50%; 
+    transform:translate(-50%, -50%);
+    text-align:center;
+    color:white;
+    display:none;
+    pointer-events:none;
+  }
+  #pausedText h1 { font-size:80px; margin:0; }
+  #pausedText p { font-size:24px; margin:10px 0 0 0; }
+
+  #topButtons {
+    position:absolute; right:10px; top:10px; display:flex; gap:10px; pointer-events:auto;
+  }
+
+  .btn {
+    color: white;
+    background: #333;
+    padding: 10px 14px;
+    text-decoration: none;
+    border-radius: 8px;
+    font-family: sans-serif;
+    font-size: 16px;
+    cursor:pointer;
+    user-select:none;
+    border: 1px solid #444;
+  }
+  .btn:hover { background:#555; }
+
+  #goBack { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); color: white; background: #333; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-family: sans-serif; font-size: 18px; pointer-events:auto; }
+  #goBack:hover { background: #555; }
+
+  /* Inventory popup */
+  #inventoryOverlay {
+    position: absolute;
+    left:0; top:0; right:0; bottom:0;
+    background: rgba(0,0,0,0.6);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    pointer-events:auto;
+  }
+  #inventoryBox {
+    width: 380px;
+    background:#1a1a1a;
+    border-radius:12px;
+    padding:18px;
+    color:white;
+    box-shadow: 0 6px 30px rgba(0,0,0,0.7);
+    border: 1px solid #333;
+    font-family: sans-serif;
+  }
+  #inventoryBox h2 { margin:0 0 14px 0; text-align:center; }
+  .inv-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .inv-left { display:flex; gap:12px; align-items:center; }
+  .inv-emoji { font-size:28px; width:36px; text-align:center; }
+  .inv-name { font-size:18px; }
+  .inv-count { opacity:0.9; font-weight:bold; }
+  .inv-use { background:#2b7; color:#002; padding:6px 10px; border-radius:8px; cursor:pointer; border:none; font-weight:bold; }
+  .inv-use:disabled { opacity:0.35; cursor:not-allowed; }
+  #closeInv { margin-top:12px; display:block; width:100%; padding:8px; background:#444; border-radius:8px; color:white; border:none; cursor:pointer; font-size:16px; }
+
+  /* floating pickup text */
+  .pickupToast {
+    position:absolute; color:#ffd; font-weight:bold; pointer-events:none;
+    text-shadow: 0 0 10px rgba(0,0,0,0.6);
+  }
 </style>
 </head>
 <body>
-<div id="score">Score: 0</div>
-<div id="pausedText">
-  <h1>PAUSED</h1>
-  <p>Press R to resume</p>
-</div>
+  <div id="hud">
+    <div id="score">Score: 0</div>
+    <div id="topButtons">
+      <button id="openInvBtn" class="btn">Open Inventory</button>
+      <button id="pauseBtn" class="btn">Pause (P)</button>
+    </div>
+  </div>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
-<a id="goBack" href="index.html">Go Back</a>
+  <div id="pausedText">
+    <h1>PAUSED</h1>
+    <p>Press R to resume</p>
+  </div>
+
+  <div id="inventoryOverlay" aria-hidden="true">
+    <div id="inventoryBox">
+      <h2>INVENTORY</h2>
+
+      <div class="inv-row">
+        <div class="inv-left">
+          <div class="inv-emoji">💣</div>
+          <div>
+            <div class="inv-name">Bomb</div>
+            <div class="inv-count" id="invBombText">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="useBomb" class="inv-use">Use</button>
+        </div>
+      </div>
+
+      <div class="inv-row">
+        <div class="inv-left">
+          <div class="inv-emoji">🛡️</div>
+          <div>
+            <div class="inv-name">Shield</div>
+            <div class="inv-count" id="invShieldText">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="useShield" class="inv-use">Use</button>
+        </div>
+      </div>
+
+      <div class="inv-row">
+        <div class="inv-left">
+          <div class="inv-emoji">🌀</div>
+          <div>
+            <div class="inv-name">Black Hole</div>
+            <div class="inv-count" id="invBHText">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="useBH" class="inv-use">Use</button>
+        </div>
+      </div>
+
+      <button id="closeInv">Close Inventory</button>
+    </div>
+  </div>
+
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <a id="goBack" href="index.html">Go Back</a>
 
 <script>
+/* ------------------------
+   CORE GAME (modified)
+   ------------------------ */
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const scoreDisplay = document.getElementById("score");
@@ -67,6 +170,7 @@ canvas.addEventListener("mousemove", e=>{
   mouse.y = e.clientY - rect.top;
 });
 
+/* Player */
 class Player {
   constructor(){
     this.x = canvas.width/2;
@@ -103,6 +207,7 @@ class Player {
   }
 }
 
+/* Bullet */
 class Bullet {
   constructor(x,y,targetX,targetY){
     this.x=x; this.y=y;
@@ -119,6 +224,7 @@ class Bullet {
   }
 }
 
+/* Enemy */
 class Enemy {
   constructor(type="red"){
     this.type = type;
@@ -145,6 +251,7 @@ class Enemy {
   }
 }
 
+/* Particle */
 class Particle {
   constructor(x,y,color,size=2){
     this.x=x; this.y=y; this.radius=size; this.color=color;
@@ -158,6 +265,7 @@ class Particle {
   }
 }
 
+/* Drops (pickup items) */
 class Drop {
   constructor(x,y,type){
     this.x=x; this.y=y; this.radius=15; this.type=type; this.life=600;
@@ -171,6 +279,7 @@ class Drop {
   }
 }
 
+/* Black Hole object when used */
 class BlackHole {
   constructor(x,y){
     this.x=x; this.y=y; this.radius=20; this.life=300;
@@ -190,23 +299,175 @@ class BlackHole {
   }
 }
 
+/* ------------------------
+   GAME STATE
+   ------------------------ */
 let player, bullets, enemies, particles, drops, blackHoles;
 let score=0;
 let shootCooldown=0;
-let shooting=true; // 🔹 Always shooting now
+let shooting=true; // auto-shoot
 let gameOver=false;
 let paused=false;
 let enemySpawnCounter=0;
 
-window.addEventListener("keydown",e=>{
+/* Inventory counts (multiples) */
+const inventory = {
+  bomb: 0,
+  shield: 0,
+  blackhole: 0
+};
+
+/* Toast pickups (floating text) */
+function showPickupToast(text, x, y){
+  const el = document.createElement("div");
+  el.className = "pickupToast";
+  el.textContent = text;
+  document.body.appendChild(el);
+  el.style.left = (x + canvas.getBoundingClientRect().left - 20) + "px";
+  el.style.top = (y + canvas.getBoundingClientRect().top - 40) + "px";
+  let life = 0;
+  const id = setInterval(()=>{
+    life++;
+    el.style.top = (parseFloat(el.style.top) - 1) + "px";
+    el.style.opacity = String(1 - life/40);
+    if(life>40){ clearInterval(id); el.remove(); }
+  },16);
+}
+
+/* ------------------------
+   INPUT / PAUSE / INVENTORY UI
+   ------------------------ */
+window.addEventListener("keydown", e=>{
   if(e.key.toLowerCase()==="p"){
-    paused = !paused;
-    pausedText.style.display = paused ? "block" : "none";
+    // toggle pause (unless inventory is open — inventory handles pausing)
+    if(!isInventoryOpen()){
+      paused = !paused;
+      pausedText.style.display = paused ? "block" : "none";
+    }
   }
   if(e.key.toLowerCase()==="r" && paused){
     paused=false;
     pausedText.style.display="none";
   }
+});
+
+const openInvBtn = document.getElementById("openInvBtn");
+const inventoryOverlay = document.getElementById("inventoryOverlay");
+const closeInvBtn = document.getElementById("closeInv");
+const useBombBtn = document.getElementById("useBomb");
+const useShieldBtn = document.getElementById("useShield");
+const useBHBtn = document.getElementById("useBH");
+const invBombText = document.getElementById("invBombText");
+const invShieldText = document.getElementById("invShieldText");
+const invBHText = document.getElementById("invBHText");
+const pauseBtn = document.getElementById("pauseBtn");
+
+function isInventoryOpen(){ return inventoryOverlay.style.display === "flex"; }
+
+openInvBtn.addEventListener("click", ()=>{
+  openInventory();
+});
+closeInvBtn.addEventListener("click", ()=>{
+  closeInventory();
+});
+
+pauseBtn.addEventListener("click", ()=>{
+  if(!isInventoryOpen()){
+    paused = !paused;
+    pausedText.style.display = paused ? "block" : "none";
+  }
+});
+
+/* Inventory open/close */
+function openInventory(){
+  paused = true;
+  pausedText.style.display = "none"; // hide paused text; inventory shows instead
+  inventoryOverlay.style.display = "flex";
+  inventoryOverlay.style.alignItems = "center";
+  inventoryOverlay.style.justifyContent = "center";
+  updateInventoryUI();
+}
+function closeInventory(){
+  inventoryOverlay.style.display = "none";
+  paused = false;
+}
+
+/* Update inventory UI counts and buttons state */
+function updateInventoryUI(){
+  invBombText.textContent = inventory.bomb + "×";
+  invShieldText.textContent = inventory.shield + "×";
+  invBHText.textContent = inventory.blackhole + "×";
+  useBombBtn.disabled = inventory.bomb <= 0;
+  useShieldBtn.disabled = inventory.shield <= 0;
+  useBHBtn.disabled = inventory.blackhole <= 0;
+}
+
+/* Use actions (when clicking Use) */
+useBombBtn.addEventListener("click", ()=>{
+  if(inventory.bomb>0){
+    inventory.bomb--;
+    updateInventoryUI();
+    closeInventory();
+    useBombAt(player.x, player.y, 220); // bomb centered at player
+  }
+});
+useShieldBtn.addEventListener("click", ()=>{
+  if(inventory.shield>0){
+    inventory.shield--;
+    updateInventoryUI();
+    closeInventory();
+    useShield();
+  }
+});
+useBHBtn.addEventListener("click", ()=>{
+  if(inventory.blackhole>0){
+    inventory.blackhole--;
+    updateInventoryUI();
+    closeInventory();
+    useBlackHoleAt(player.x, player.y);
+  }
+});
+
+/* ------------------------
+   Abilities Implementations
+   ------------------------ */
+
+/* Bomb: remove enemies within radius, spawn particle FX and increase score */
+function useBombAt(x, y, radius=200){
+  let removed = 0;
+  for(let i=enemies.length-1;i>=0;i--){
+    const e = enemies[i];
+    const d = Math.hypot(e.x - x, e.y - y);
+    if(d < radius){
+      removed++;
+      for(let k=0;k<20;k++) particles.push(new Particle(e.x,e.y,"orange",Math.random()*4+2));
+      enemies.splice(i,1);
+    }
+  }
+  if(removed>0){
+    score += removed;
+    popScore();
+  }
+  // spawn some new enemies to keep game alive
+  for(let k=0;k<Math.min(removed+3, 12); k++) spawnEnemy();
+}
+
+/* Shield: grant player shield for 10s */
+function useShield(){
+  player.shielded = true;
+  setTimeout(()=>{ player.shielded = false; }, 10000);
+}
+
+/* Black Hole: spawn a black hole at a location that attracts enemies */
+function useBlackHoleAt(x,y){
+  blackHoles.push(new BlackHole(x,y));
+}
+
+/* ------------------------
+   GAME LOGIC
+   ------------------------ */
+window.addEventListener("resize", ()=>{
+  // keep canvas size same but repositioning mouse may be affected - not changing canvas dims
 });
 
 function resetGame(){
@@ -218,6 +479,10 @@ function resetGame(){
   blackHoles = [];
   score = 0;
   gameOver = false;
+  inventory.bomb = 0;
+  inventory.shield = 0;
+  inventory.blackhole = 0;
+  updateInventoryUI();
   for(let i=0;i<5;i++) spawnEnemy();
 }
 
@@ -239,6 +504,7 @@ function endGame(){
   },100);
 }
 
+/* Main animation loop */
 function animate(){
   requestAnimationFrame(animate);
 
@@ -250,7 +516,7 @@ function animate(){
   player.move();
   player.draw();
 
-  // 🔹 Shooting automatically
+  // Shooting automatically
   if(shooting && shootCooldown<=0){
     bullets.push(new Bullet(player.x,player.y,mouse.x,mouse.y));
     shootCooldown=10;
@@ -268,6 +534,7 @@ function animate(){
     if(Math.random()<0.3) spawnEnemy();
   }
 
+  // Black holes attract enemies
   for(let i=blackHoles.length-1;i>=0;i--){
     const bh = blackHoles[i];
     bh.update(); bh.draw();
@@ -282,6 +549,7 @@ function animate(){
       if(d<bh.radius){
         for(let k=0;k<20;k++) particles.push(new Particle(e.x,e.y,"purple",Math.random()*4+2));
         score++; popScore();
+        // remove this enemy (safe removal later)
         enemies.splice(enemies.indexOf(e),1);
       }
     });
@@ -298,9 +566,11 @@ function animate(){
         if(e.health<=0){
           for(let k=0;k<20;k++) particles.push(new Particle(b.x,b.y,e.color,Math.random()*4+2));
           score++; popScore();
+          // drops only from purple enemies
           if(e.type==="purple"){
-            if(Math.random()<0.33) drops.push(new Drop(e.x,e.y,"bomb"));
-            else if(Math.random()<0.66) drops.push(new Drop(e.x,e.y,"shield"));
+            const roll = Math.random();
+            if(roll<0.33) drops.push(new Drop(e.x,e.y,"bomb"));
+            else if(roll<0.66) drops.push(new Drop(e.x,e.y,"shield"));
             else drops.push(new Drop(e.x,e.y,"blackhole"));
           }
           enemies.splice(i,1); spawnEnemy();
@@ -321,22 +591,20 @@ function animate(){
   for(let i=drops.length-1;i>=0;i--){
     const d=drops[i]; d.draw(); d.life--;
     if(dist(d,player)<player.radius+d.radius){
+      // Instead of activating immediately, add to inventory and show toast
       if(d.type==="bomb"){
-        enemies.forEach(e=>{
-          if(dist(e,d)<200){
-            for(let k=0;k<20;k++) particles.push(new Particle(e.x,e.y,"orange",Math.random()*4+2));
-            score++; 
-          }
-        });
-        enemies.length=0; for(let k=0;k<10;k++) spawnEnemy();
+        inventory.bomb++;
+        showPickupToast("Bomb +1", d.x, d.y);
       }
       if(d.type==="shield"){
-        player.shielded=true;
-        setTimeout(()=>player.shielded=false,10000);
+        inventory.shield++;
+        showPickupToast("Shield +1", d.x, d.y);
       }
       if(d.type==="blackhole"){
-        blackHoles.push(new BlackHole(d.x,d.y));
+        inventory.blackhole++;
+        showPickupToast("Black Hole +1", d.x, d.y);
       }
+      updateInventoryUI();
       drops.splice(i,1);
     } else if(d.life<=0) drops.splice(i,1);
   }
@@ -344,8 +612,10 @@ function animate(){
   scoreDisplay.textContent = "Score: "+score;
 }
 
+/* start */
 resetGame();
 animate();
+
 </script>
 </body>
 </html>
