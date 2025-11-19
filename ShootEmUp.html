@@ -1,7 +1,8 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Addictive Shooter Game + Inventory</title>
+<title>Addictive Shooter Game + Inventory + Shop (Magnet)</title>
 <style>
   body { margin:0; overflow:hidden; background:#111; font-family:sans-serif; }
   canvas { display:block; margin:auto; background:#222; }
@@ -12,15 +13,26 @@
 
   #score {
     pointer-events:auto;
-    position:absolute; top:10px; left:10px; 
+    position:absolute; top:10px; left:10px;
     color:white; font-size:30px; font-weight:bold;
     transition: transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
   }
   #score.pop { transform: scale(1.6); color: gold; text-shadow: 0 0 20px yellow; }
 
+  /* MOVED: money now under score */
+  #money {
+    position:absolute;
+    left:10px;
+    top:55px; /* under score */
+    color:#9f9;
+    font-size:22px;
+    font-weight:bold;
+    pointer-events:auto;
+  }
+
   #pausedText {
-    position:absolute; 
-    top:50%; left:50%; 
+    position:absolute;
+    top:50%; left:50%;
     transform:translate(-50%, -50%);
     text-align:center;
     color:white;
@@ -51,8 +63,8 @@
   #goBack { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); color: white; background: #333; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-family: sans-serif; font-size: 18px; pointer-events:auto; }
   #goBack:hover { background: #555; }
 
-  /* Inventory popup */
-  #inventoryOverlay {
+  /* Inventory popup & Shop popup */
+  #inventoryOverlay, #shopOverlay {
     position: absolute;
     left:0; top:0; right:0; bottom:0;
     background: rgba(0,0,0,0.6);
@@ -60,9 +72,10 @@
     align-items:center;
     justify-content:center;
     pointer-events:auto;
+    z-index:50;
   }
-  #inventoryBox {
-    width: 380px;
+  #inventoryBox, #shopBox {
+    width: 500px;
     background:#1a1a1a;
     border-radius:12px;
     padding:18px;
@@ -71,15 +84,19 @@
     border: 1px solid #333;
     font-family: sans-serif;
   }
-  #inventoryBox h2 { margin:0 0 14px 0; text-align:center; }
-  .inv-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
-  .inv-left { display:flex; gap:12px; align-items:center; }
+  #inventoryBox h2, #shopBox h2 { margin:0 0 14px 0; text-align:center; }
+  .inv-row, .shop-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .inv-left, .shop-left { display:flex; gap:12px; align-items:center; }
   .inv-emoji { font-size:28px; width:36px; text-align:center; }
   .inv-name { font-size:18px; }
   .inv-count { opacity:0.9; font-weight:bold; }
   .inv-use { background:#2b7; color:#002; padding:6px 10px; border-radius:8px; cursor:pointer; border:none; font-weight:bold; }
   .inv-use:disabled { opacity:0.35; cursor:not-allowed; }
-  #closeInv { margin-top:12px; display:block; width:100%; padding:8px; background:#444; border-radius:8px; color:white; border:none; cursor:pointer; font-size:16px; }
+
+  .shop-btn { background:#2b7; color:#002; padding:6px 10px; border-radius:8px; cursor:pointer; border:none; font-weight:bold; margin-left:6px; }
+  .shop-btn.sell { background:#d55; color:#200; }
+
+  #closeInv, #closeShop, .openOther { margin-top:12px; display:block; width:100%; padding:8px; background:#444; border-radius:8px; color:white; border:none; cursor:pointer; font-size:16px; }
 
   /* floating pickup text */
   .pickupToast {
@@ -91,9 +108,11 @@
 <body>
   <div id="hud">
     <div id="score">Score: 0</div>
+    <div id="money">Money: $0</div>
     <div id="topButtons">
       <button id="openInvBtn" class="btn">Open Inventory</button>
       <button id="pauseBtn" class="btn">Pause (P)</button>
+      <button id="openShopBtn" class="btn">Open Shop (S)</button>
     </div>
   </div>
 
@@ -102,6 +121,7 @@
     <p>Press R to resume</p>
   </div>
 
+  <!-- Inventory Popup -->
   <div id="inventoryOverlay" aria-hidden="true">
     <div id="inventoryBox">
       <h2>INVENTORY</h2>
@@ -145,7 +165,118 @@
         </div>
       </div>
 
-      <button id="closeInv">Close Inventory</button>
+      <!-- Rapid Fire inventory row (shop-only ability) -->
+      <div class="inv-row">
+        <div class="inv-left">
+          <div class="inv-emoji">⚡</div>
+          <div>
+            <div class="inv-name">Rapid Fire</div>
+            <div class="inv-count" id="invRapidText">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="useRapid" class="inv-use">Use</button>
+        </div>
+      </div>
+
+      <!-- Magnet inventory row (shop-only ability) -->
+      <div class="inv-row">
+        <div class="inv-left">
+          <div class="inv-emoji">🧲</div>
+          <div>
+            <div class="inv-name">Magnet (12s)</div>
+            <div class="inv-count" id="invMagnetText">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="useMagnet" class="inv-use">Use</button>
+        </div>
+      </div>
+
+      <button id="openShopFromInv" class="openOther">Open Shop</button>
+      <button id="closeInv">Close Inventory (C)</button>
+    </div>
+  </div>
+
+  <!-- Shop Popup -->
+  <div id="shopOverlay" aria-hidden="true">
+    <div id="shopBox">
+      <h2>SHOP — Price: $50 each</h2>
+
+      <div class="shop-row">
+        <div class="shop-left">
+          <div class="inv-emoji">💣</div>
+          <div>
+            <div class="inv-name">Bomb</div>
+            <div class="inv-count" id="shopBombCount">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="buyBomb" class="shop-btn">Buy $50</button>
+          <button id="sellBomb" class="shop-btn sell">Sell $50</button>
+        </div>
+      </div>
+
+      <div class="shop-row">
+        <div class="shop-left">
+          <div class="inv-emoji">🛡️</div>
+          <div>
+            <div class="inv-name">Shield</div>
+            <div class="inv-count" id="shopShieldCount">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="buyShield" class="shop-btn">Buy $50</button>
+          <button id="sellShield" class="shop-btn sell">Sell $50</button>
+        </div>
+      </div>
+
+      <div class="shop-row">
+        <div class="shop-left">
+          <div class="inv-emoji">🌀</div>
+          <div>
+            <div class="inv-name">Black Hole</div>
+            <div class="inv-count" id="shopBHCount">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="buyBH" class="shop-btn">Buy $50</button>
+          <button id="sellBH" class="shop-btn sell">Sell $50</button>
+        </div>
+      </div>
+
+      <!-- Rapid Fire shop-only row -->
+      <div class="shop-row">
+        <div class="shop-left">
+          <div class="inv-emoji">⚡</div>
+          <div>
+            <div class="inv-name">Rapid Fire (10s)</div>
+            <div class="inv-count" id="shopRapidCount">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="buyRapid" class="shop-btn">Buy $50</button>
+          <button id="sellRapid" class="shop-btn sell">Sell $50</button>
+        </div>
+      </div>
+
+      <!-- Magnet shop-only row -->
+      <div class="shop-row">
+        <div class="shop-left">
+          <div class="inv-emoji">🧲</div>
+          <div>
+            <div class="inv-name">Magnet (12s)</div>
+            <div class="inv-count" id="shopMagnetCount">0×</div>
+          </div>
+        </div>
+        <div>
+          <button id="buyMagnet" class="shop-btn">Buy $50</button>
+          <button id="sellMagnet" class="shop-btn sell">Sell $50</button>
+        </div>
+      </div>
+
+      <button id="openInvFromShop" class="openOther">Open Inventory</button>
+      <button id="closeShop">Close Shop (C)</button>
     </div>
   </div>
 
@@ -159,6 +290,7 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const scoreDisplay = document.getElementById("score");
+const moneyDisplay = document.getElementById("money");
 const pausedText = document.getElementById("pausedText");
 
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
@@ -304,17 +436,34 @@ class BlackHole {
    ------------------------ */
 let player, bullets, enemies, particles, drops, blackHoles;
 let score=0;
+let money=0;
+const ITEM_PRICE = 50;
 let shootCooldown=0;
+let shootInterval = 10;            // base shoot cooldown (frames)
+const DEFAULT_SHOOT_INTERVAL = 10; // to restore after Rapid Fire
 let shooting=true; // auto-shoot
 let gameOver=false;
 let paused=false;
 let enemySpawnCounter=0;
 
+/* Rapid Fire state */
+let rapidActive = false;
+let rapidTimeoutId = null;
+const RAPID_DURATION_MS = 10000; // 10 seconds
+
+/* Magnet state */
+let magnetActive = false;
+let magnetTimeoutId = null;
+const MAGNET_DURATION_MS = 12000; // 12 seconds
+const MAGNET_PULL_SPEED = 4; // how fast drops move toward player while magnet active
+
 /* Inventory counts (multiples) */
 const inventory = {
   bomb: 0,
   shield: 0,
-  blackhole: 0
+  blackhole: 0,
+  rapid: 0,   // shop-only ability
+  magnet: 0   // shop-only ability
 };
 
 /* Toast pickups (floating text) */
@@ -338,14 +487,34 @@ function showPickupToast(text, x, y){
    INPUT / PAUSE / INVENTORY UI
    ------------------------ */
 window.addEventListener("keydown", e=>{
-  if(e.key.toLowerCase()==="p"){
-    // toggle pause (unless inventory is open — inventory handles pausing)
-    if(!isInventoryOpen()){
+  const key = e.key.toLowerCase();
+
+  // open shop with S (user requested)
+  if(key === "s"){
+    if(!isShopOpen()) openShop();
+  }
+
+  // close overlay with C
+  if(key === "c"){
+    if(isShopOpen()) closeShop();
+    else if(isInventoryOpen()) closeInventory();
+  }
+
+  // also allow I to open inventory quickly
+  if(key === "i"){
+    if(!isInventoryOpen()) openInventory();
+  }
+
+  // pause with P (disabled when inventory/shop open)
+  if(key === "p"){
+    if(!isInventoryOpen() && !isShopOpen()){
       paused = !paused;
       pausedText.style.display = paused ? "block" : "none";
     }
   }
-  if(e.key.toLowerCase()==="r" && paused){
+
+  // resume with R
+  if(key === "r" && paused){
     paused=false;
     pausedText.style.display="none";
   }
@@ -357,12 +526,40 @@ const closeInvBtn = document.getElementById("closeInv");
 const useBombBtn = document.getElementById("useBomb");
 const useShieldBtn = document.getElementById("useShield");
 const useBHBtn = document.getElementById("useBH");
+const useRapidBtn = document.getElementById("useRapid");
+const useMagnetBtn = document.getElementById("useMagnet");
 const invBombText = document.getElementById("invBombText");
 const invShieldText = document.getElementById("invShieldText");
 const invBHText = document.getElementById("invBHText");
+const invRapidText = document.getElementById("invRapidText");
+const invMagnetText = document.getElementById("invMagnetText");
 const pauseBtn = document.getElementById("pauseBtn");
+const openShopBtn = document.getElementById("openShopBtn");
+const shopOverlay = document.getElementById("shopOverlay");
+const closeShopBtn = document.getElementById("closeShop");
+const buyBombBtn = document.getElementById("buyBomb");
+const buyShieldBtn = document.getElementById("buyShield");
+const buyBHBtn = document.getElementById("buyBH");
+const sellBombBtn = document.getElementById("sellBomb");
+const sellShieldBtn = document.getElementById("sellShield");
+const sellBHBtn = document.getElementById("sellBH");
+const shopBombCount = document.getElementById("shopBombCount");
+const shopShieldCount = document.getElementById("shopShieldCount");
+const shopBHCount = document.getElementById("shopBHCount");
+
+const buyRapidBtn = document.getElementById("buyRapid");
+const sellRapidBtn = document.getElementById("sellRapid");
+const shopRapidCount = document.getElementById("shopRapidCount");
+
+const buyMagnetBtn = document.getElementById("buyMagnet");
+const sellMagnetBtn = document.getElementById("sellMagnet");
+const shopMagnetCount = document.getElementById("shopMagnetCount");
+
+const openInvFromShopBtn = document.getElementById("openInvFromShop");
+const openShopFromInvBtn = document.getElementById("openShopFromInv");
 
 function isInventoryOpen(){ return inventoryOverlay.style.display === "flex"; }
+function isShopOpen(){ return shopOverlay.style.display === "flex"; }
 
 openInvBtn.addEventListener("click", ()=>{
   openInventory();
@@ -371,8 +568,20 @@ closeInvBtn.addEventListener("click", ()=>{
   closeInventory();
 });
 
+openInvFromShopBtn.addEventListener("click", ()=>{
+  // go from shop to inventory
+  closeShop();
+  openInventory();
+});
+
+openShopFromInvBtn.addEventListener("click", ()=>{
+  // go from inventory to shop
+  closeInventory();
+  openShop();
+});
+
 pauseBtn.addEventListener("click", ()=>{
-  if(!isInventoryOpen()){
+  if(!isInventoryOpen() && !isShopOpen()){
     paused = !paused;
     pausedText.style.display = paused ? "block" : "none";
   }
@@ -397,17 +606,34 @@ function updateInventoryUI(){
   invBombText.textContent = inventory.bomb + "×";
   invShieldText.textContent = inventory.shield + "×";
   invBHText.textContent = inventory.blackhole + "×";
+  invRapidText.textContent = inventory.rapid + "×";
+  invMagnetText.textContent = inventory.magnet + "×";
   useBombBtn.disabled = inventory.bomb <= 0;
   useShieldBtn.disabled = inventory.shield <= 0;
   useBHBtn.disabled = inventory.blackhole <= 0;
+  useRapidBtn.disabled = inventory.rapid <= 0;
+  useMagnetBtn.disabled = inventory.magnet <= 0;
+
+  // also update shop counts
+  shopBombCount.textContent = inventory.bomb + "×";
+  shopShieldCount.textContent = inventory.shield + "×";
+  shopBHCount.textContent = inventory.blackhole + "×";
+  shopRapidCount.textContent = inventory.rapid + "×";
+  shopMagnetCount.textContent = inventory.magnet + "×";
+
+  updateShopButtons();
 }
 
-/* Use actions (when clicking Use) */
+/* Use actions (when clicking Use)
+   CHANGED: using an item DOES NOT close inventory or resume the game.
+   Inventory remains open and paused. Player must press Close (C) to resume.
+*/
 useBombBtn.addEventListener("click", ()=>{
   if(inventory.bomb>0){
     inventory.bomb--;
     updateInventoryUI();
-    closeInventory();
+    // keep inventory open and paused — user must press Close (C)
+    paused = true;
     useBombAt(player.x, player.y, 220); // bomb centered at player
   }
 });
@@ -415,7 +641,7 @@ useShieldBtn.addEventListener("click", ()=>{
   if(inventory.shield>0){
     inventory.shield--;
     updateInventoryUI();
-    closeInventory();
+    paused = true;
     useShield();
   }
 });
@@ -423,8 +649,149 @@ useBHBtn.addEventListener("click", ()=>{
   if(inventory.blackhole>0){
     inventory.blackhole--;
     updateInventoryUI();
-    closeInventory();
+    paused = true;
     useBlackHoleAt(player.x, player.y);
+  }
+});
+useRapidBtn.addEventListener("click", ()=>{
+  if(inventory.rapid>0){
+    inventory.rapid--;
+    updateInventoryUI();
+    paused = true;
+    activateRapidFire();
+  }
+});
+useMagnetBtn.addEventListener("click", ()=>{
+  if(inventory.magnet>0){
+    inventory.magnet--;
+    updateInventoryUI();
+    paused = true;
+    activateMagnet();
+  }
+});
+
+/* ------------------------
+   SHOP LOGIC
+   ------------------------ */
+openShopBtn.addEventListener("click", ()=> openShop());
+closeShopBtn.addEventListener("click", ()=> closeShop());
+
+function openShop(){
+  paused = true;
+  pausedText.style.display = "none";
+  shopOverlay.style.display = "flex";
+  shopOverlay.style.alignItems = "center";
+  shopOverlay.style.justifyContent = "center";
+  updateInventoryUI();
+  updateMoneyUI();
+}
+
+function closeShop(){
+  shopOverlay.style.display = "none";
+  paused = false;
+}
+
+function updateMoneyUI(){
+  moneyDisplay.textContent = "Money: $" + money;
+}
+
+function updateShopButtons(){
+  // enable/disable buy if not enough money
+  buyBombBtn.disabled = (money < ITEM_PRICE);
+  buyShieldBtn.disabled = (money < ITEM_PRICE);
+  buyBHBtn.disabled = (money < ITEM_PRICE);
+  buyRapidBtn.disabled = (money < ITEM_PRICE);
+  buyMagnetBtn.disabled = (money < ITEM_PRICE);
+
+  // enable/disable sell if no items to sell
+  sellBombBtn.disabled = (inventory.bomb <= 0);
+  sellShieldBtn.disabled = (inventory.shield <= 0);
+  sellBHBtn.disabled = (inventory.blackhole <= 0);
+  sellRapidBtn.disabled = (inventory.rapid <= 0);
+  sellMagnetBtn.disabled = (inventory.magnet <= 0);
+}
+
+/* Buy handlers */
+buyBombBtn.addEventListener("click", ()=>{
+  if(money >= ITEM_PRICE){
+    money -= ITEM_PRICE;
+    inventory.bomb++;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+buyShieldBtn.addEventListener("click", ()=>{
+  if(money >= ITEM_PRICE){
+    money -= ITEM_PRICE;
+    inventory.shield++;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+buyBHBtn.addEventListener("click", ()=>{
+  if(money >= ITEM_PRICE){
+    money -= ITEM_PRICE;
+    inventory.blackhole++;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+buyRapidBtn.addEventListener("click", ()=>{
+  if(money >= ITEM_PRICE){
+    money -= ITEM_PRICE;
+    inventory.rapid++;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+buyMagnetBtn.addEventListener("click", ()=>{
+  if(money >= ITEM_PRICE){
+    money -= ITEM_PRICE;
+    inventory.magnet++;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+
+/* Sell handlers */
+sellBombBtn.addEventListener("click", ()=>{
+  if(inventory.bomb > 0){
+    inventory.bomb--;
+    money += ITEM_PRICE;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+sellShieldBtn.addEventListener("click", ()=>{
+  if(inventory.shield > 0){
+    inventory.shield--;
+    money += ITEM_PRICE;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+sellBHBtn.addEventListener("click", ()=>{
+  if(inventory.blackhole > 0){
+    inventory.blackhole--;
+    money += ITEM_PRICE;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+sellRapidBtn.addEventListener("click", ()=>{
+  if(inventory.rapid > 0){
+    inventory.rapid--;
+    money += ITEM_PRICE;
+    updateMoneyUI();
+    updateInventoryUI();
+  }
+});
+sellMagnetBtn.addEventListener("click", ()=>{
+  if(inventory.magnet > 0){
+    inventory.magnet--;
+    money += ITEM_PRICE;
+    updateMoneyUI();
+    updateInventoryUI();
   }
 });
 
@@ -446,7 +813,10 @@ function useBombAt(x, y, radius=200){
   }
   if(removed>0){
     score += removed;
+    // earn some money for kills caused by the bomb (treat as red kills)
+    money += removed * 5;
     popScore();
+    updateMoneyUI();
   }
   // spawn some new enemies to keep game alive
   for(let k=0;k<Math.min(removed+3, 12); k++) spawnEnemy();
@@ -461,6 +831,32 @@ function useShield(){
 /* Black Hole: spawn a black hole at a location that attracts enemies */
 function useBlackHoleAt(x,y){
   blackHoles.push(new BlackHole(x,y));
+}
+
+/* Rapid Fire: increases shooting speed 3x for RAPID_DURATION_MS */
+function activateRapidFire(){
+  if(rapidActive){
+    clearTimeout(rapidTimeoutId);
+  } else {
+    rapidActive = true;
+    shootInterval = Math.max(1, Math.floor(DEFAULT_SHOOT_INTERVAL / 3));
+  }
+  rapidTimeoutId = setTimeout(()=> {
+    rapidActive = false;
+    shootInterval = DEFAULT_SHOOT_INTERVAL;
+  }, RAPID_DURATION_MS);
+}
+
+/* Magnet: pulls drops toward player for MAGNET_DURATION_MS (no cooldown) */
+function activateMagnet(){
+  if(magnetActive){
+    clearTimeout(magnetTimeoutId);
+  } else {
+    magnetActive = true;
+  }
+  magnetTimeoutId = setTimeout(()=>{
+    magnetActive = false;
+  }, MAGNET_DURATION_MS);
 }
 
 /* ------------------------
@@ -478,11 +874,19 @@ function resetGame(){
   drops = [];
   blackHoles = [];
   score = 0;
+  money = 0;
   gameOver = false;
   inventory.bomb = 0;
   inventory.shield = 0;
   inventory.blackhole = 0;
+  inventory.rapid = 0;
+  inventory.magnet = 0;
+  rapidActive = false;
+  if(rapidTimeoutId) { clearTimeout(rapidTimeoutId); rapidTimeoutId = null; shootInterval = DEFAULT_SHOOT_INTERVAL; }
+  magnetActive = false;
+  if(magnetTimeoutId) { clearTimeout(magnetTimeoutId); magnetTimeoutId = null; }
   updateInventoryUI();
+  updateMoneyUI();
   for(let i=0;i<5;i++) spawnEnemy();
 }
 
@@ -516,10 +920,10 @@ function animate(){
   player.move();
   player.draw();
 
-  // Shooting automatically
+  // Shooting automatically using shootInterval
   if(shooting && shootCooldown<=0){
     bullets.push(new Bullet(player.x,player.y,mouse.x,mouse.y));
-    shootCooldown=10;
+    shootCooldown = shootInterval;
   }
   if(shootCooldown>0) shootCooldown--;
 
@@ -549,6 +953,9 @@ function animate(){
       if(d<bh.radius){
         for(let k=0;k<20;k++) particles.push(new Particle(e.x,e.y,"purple",Math.random()*4+2));
         score++; popScore();
+        // award money for black hole kills
+        money += 5;
+        updateMoneyUI();
         // remove this enemy (safe removal later)
         enemies.splice(enemies.indexOf(e),1);
       }
@@ -566,6 +973,10 @@ function animate(){
         if(e.health<=0){
           for(let k=0;k<20;k++) particles.push(new Particle(b.x,b.y,e.color,Math.random()*4+2));
           score++; popScore();
+          // award money for kill based on type
+          if(e.type==="purple") money += 10;
+          else money += 5;
+          updateMoneyUI();
           // drops only from purple enemies
           if(e.type==="purple"){
             const roll = Math.random();
@@ -588,10 +999,22 @@ function animate(){
     if(p.life<=0) particles.splice(i,1);
   }
 
+  // Drops: if magnetActive, pull drops toward player
   for(let i=drops.length-1;i>=0;i--){
-    const d=drops[i]; d.draw(); d.life--;
+    const d=drops[i];
+    if(magnetActive){
+      // pull toward player
+      const dx = player.x - d.x;
+      const dy = player.y - d.y;
+      const distToPlayer = Math.hypot(dx,dy) || 1;
+      // move toward player by MAGNET_PULL_SPEED scaled by closeness
+      d.x += dx/distToPlayer * MAGNET_PULL_SPEED;
+      d.y += dy/distToPlayer * MAGNET_PULL_SPEED;
+    }
+    d.draw();
+    d.life--;
     if(dist(d,player)<player.radius+d.radius){
-      // Instead of activating immediately, add to inventory and show toast
+      // collect
       if(d.type==="bomb"){
         inventory.bomb++;
         showPickupToast("Bomb +1", d.x, d.y);
@@ -609,7 +1032,9 @@ function animate(){
     } else if(d.life<=0) drops.splice(i,1);
   }
 
+  // update HUD
   scoreDisplay.textContent = "Score: "+score;
+  moneyDisplay.textContent = "Money: $"+money;
 }
 
 /* start */
