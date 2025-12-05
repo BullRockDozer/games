@@ -339,7 +339,7 @@ class Player {
   }
 }
 
-/* Bullet */
+/* Bullet (player) */
 class Bullet {
   constructor(x,y,targetX,targetY){
     this.x=x; this.y=y;
@@ -347,6 +347,23 @@ class Bullet {
     this.dx=Math.cos(angle)*10;
     this.dy=Math.sin(angle)*10;
     this.radius=5; this.color="yellow";
+  }
+  update(){ this.x+=this.dx; this.y+=this.dy; }
+  draw(){
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.radius,0,Math.PI*2);
+    ctx.fillStyle=this.color; ctx.fill();
+  }
+}
+
+/* Enemy bullet (larger) */
+class EnemyBullet {
+  constructor(x,y,targetX,targetY){
+    this.x=x; this.y=y;
+    const angle = Math.atan2(targetY - y, targetX - x);
+    this.dx=Math.cos(angle)*6; // enemy bullets slower than player bullets
+    this.dy=Math.sin(angle)*6;
+    this.radius=15; this.color="lightblue"; // 3x player's bullet radius (player=5 -> 15)
   }
   update(){ this.x+=this.dx; this.y+=this.dy; }
   draw(){
@@ -366,20 +383,82 @@ class Enemy {
     if(edge===1){ this.x=canvas.width+this.radius; this.y=Math.random()*canvas.height; }
     if(edge===2){ this.x=Math.random()*canvas.width; this.y=-this.radius; }
     if(edge===3){ this.x=Math.random()*canvas.width; this.y=canvas.height+this.radius; }
-    this.color = type==="purple"?"purple":"red";
+    this.color = type==="purple"?"purple": type==="blue" ? "deepskyblue" : "red";
     this.speed = 0.5 + Math.random()*0.5;
-    this.health = type==="purple"?2:1;
+    this.health = type==="purple"?2: (type==="blue"?3:1);
+    // blue-specific shooting state
+    this.shootCooldown = Math.floor(80 + Math.random()*120); // frames until next shot cycle
+    this.aimWindup = 0; // frames of aiming/vibration
+    this.aimWindupMax = 30; // how long the vibration lasts before firing
+    this.vibratePhase = Math.random()*1000; // for unique vibration
   }
   move(player){
-    const dx = player.x - this.x;
-    const dy = player.y - this.y;
-    const d = Math.hypot(dx,dy);
-    if(d>0){ this.x += dx/d*this.speed; this.y += dy/d*this.speed; }
+    // blue enemies will keep some distance and then aim/shoot; others chase
+    if(this.type === "blue"){
+      // simple behavior: slowly circle or move toward player but keep a comfortable distance
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const d = Math.hypot(dx,dy) || 1;
+      if(d > 160){
+        this.x += dx/d * (this.speed * 0.9);
+        this.y += dy/d * (this.speed * 0.9);
+      } else {
+        // small orbit movement
+        const angle = Math.atan2(dy,dx) + Math.PI/2;
+        this.x += Math.cos(angle) * 0.5;
+        this.y += Math.sin(angle) * 0.5;
+      }
+    } else {
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const d = Math.hypot(dx,dy);
+      if(d>0){ this.x += dx/d*this.speed; this.y += dy/d*this.speed; }
+    }
   }
-  draw(){
+  draw(player){
+    ctx.save();
+    // if blue and aiming, apply small vibrating offset to draw
+    let drawX = this.x;
+    let drawY = this.y;
+    if(this.type === "blue" && this.aimWindup > 0){
+      // vibrate using sine wave dependent on time and unique phase
+      const t = Date.now()/30 + this.vibratePhase;
+      const vib = Math.sin(t) * 4 * (this.aimWindup / this.aimWindupMax);
+      const vib2 = Math.cos(t/2 + this.vibratePhase) * 3 * (this.aimWindup / this.aimWindupMax);
+      drawX += vib; drawY += vib2;
+    }
     ctx.beginPath();
-    ctx.arc(this.x,this.y,this.radius,0,Math.PI*2);
+    ctx.arc(drawX, drawY, this.radius,0,Math.PI*2);
     ctx.fillStyle = this.color; ctx.fill();
+    // draw HP bars for blue enemies (helpful)
+    if(this.type === "blue"){
+      const barW = this.radius*2;
+      const pct = Math.max(0, this.health)/3;
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, barW, 6);
+      ctx.fillStyle = "lime";
+      ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, barW * pct, 6);
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.strokeRect(this.x - this.radius, this.y - this.radius - 10, barW, 6);
+    }
+    ctx.restore();
+  }
+
+  updateShooting(player){
+    if(this.type !== "blue") return;
+    // decrease cooldown
+    this.shootCooldown--;
+    if(this.shootCooldown <= this.aimWindupMax && this.shootCooldown > 0){
+      // start aiming (wind-up)
+      this.aimWindup = this.shootCooldown; // remaining windup frames
+    }
+    if(this.shootCooldown <= 0){
+      // fire a shot at player
+      enemyBullets.push(new EnemyBullet(this.x, this.y, player.x, player.y));
+      // reset cooldown (some randomness)
+      this.shootCooldown = Math.floor(100 + Math.random()*160);
+      this.aimWindup = 0;
+    }
   }
 }
 
@@ -408,6 +487,8 @@ class Drop {
     if(this.type==="bomb") ctx.fillText("💣",this.x,this.y);
     if(this.type==="shield") ctx.fillText("🛡️",this.x,this.y);
     if(this.type==="blackhole") ctx.fillText("🌀",this.x,this.y);
+    if(this.type==="rapid") ctx.fillText("⚡",this.x,this.y);
+    if(this.type==="magnet") ctx.fillText("🧲",this.x,this.y);
   }
 }
 
@@ -434,7 +515,7 @@ class BlackHole {
 /* ------------------------
    GAME STATE
    ------------------------ */
-let player, bullets, enemies, particles, drops, blackHoles;
+let player, bullets, enemies, particles, drops, blackHoles, enemyBullets;
 let score=0;
 let money=0;
 const ITEM_PRICE = 50;
@@ -873,6 +954,7 @@ function resetGame(){
   particles = [];
   drops = [];
   blackHoles = [];
+  enemyBullets = [];
   score = 0;
   money = 0;
   gameOver = false;
@@ -891,7 +973,12 @@ function resetGame(){
 }
 
 function spawnEnemy(){
-  const type = Math.random()<0.2?"purple":"red";
+  // add some chance for blue enemies
+  const r = Math.random();
+  let type;
+  if(r < 0.12) type = "blue";        // rarer blue enemies
+  else if(r < 0.25) type = "purple";
+  else type = "red";
   enemies.push(new Enemy(type));
 }
 
@@ -932,6 +1019,24 @@ function animate(){
     if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bullets.splice(i,1);
   }
 
+  // update and draw enemy bullets, check collision with player
+  for(let i=enemyBullets.length-1;i>=0;i--){
+    const eb = enemyBullets[i];
+    eb.update(); eb.draw();
+    if(eb.x< -50||eb.x>canvas.width+50||eb.y< -50||eb.y>canvas.height+50) { enemyBullets.splice(i,1); continue; }
+    // collision with player
+    if(Math.hypot(eb.x - player.x, eb.y - player.y) < eb.radius + player.radius){
+      enemyBullets.splice(i,1);
+      if(!player.shielded){
+        endGame();
+        return; // break out early to avoid further processing
+      } else {
+        // if shielded, bullet is absorbed and play some particles
+        for(let k=0;k<8;k++) particles.push(new Particle(player.x, player.y, "white", Math.random()*3+1));
+      }
+    }
+  }
+
   enemySpawnCounter++;
   if(enemySpawnCounter % 60 === 0){
     spawnEnemy();
@@ -964,33 +1069,59 @@ function animate(){
   }
 
   for(let i=enemies.length-1;i>=0;i--){
-    const e=enemies[i]; e.move(player); e.draw();
+    const e=enemies[i];
+    e.move(player);
+    // update shooting behavior if blue
+    if(e.type === "blue") e.updateShooting(player);
+    e.draw(player);
+
+    // check collision with player bullets
     for(let j=bullets.length-1;j>=0;j--){
       const b=bullets[j];
-      if(dist(e,b)<e.radius+b.radius){
+      if(Math.hypot(e.x - b.x, e.y - b.y) < e.radius + b.radius){
         e.health--;
         bullets.splice(j,1);
+        // particles where the bullet hit
+        for(let k=0;k<8;k++) particles.push(new Particle(b.x,b.y,e.color,Math.random()*3+1));
         if(e.health<=0){
-          for(let k=0;k<20;k++) particles.push(new Particle(b.x,b.y,e.color,Math.random()*4+2));
+          // reward and drops
           score++; popScore();
-          // award money for kill based on type
-          if(e.type==="purple") money += 10;
-          else money += 5;
-          updateMoneyUI();
-          // drops only from purple enemies
-          if(e.type==="purple"){
-            const roll = Math.random();
-            if(roll<0.33) drops.push(new Drop(e.x,e.y,"bomb"));
-            else if(roll<0.66) drops.push(new Drop(e.x,e.y,"shield"));
-            else drops.push(new Drop(e.x,e.y,"blackhole"));
+          // blue enemies give $20, others as before
+          if(e.type === "blue"){
+            money += 20;
+            // roll a guaranteed drop between rapid/magnet (50/50)
+            if(Math.random() < 0.5){
+              drops.push(new Drop(e.x, e.y, "rapid"));
+            } else {
+              drops.push(new Drop(e.x, e.y, "magnet"));
+            }
+            updateMoneyUI();
+            // also spawn particles big
+            for(let k=0;k<25;k++) particles.push(new Particle(e.x,e.y,"deepskyblue",Math.random()*4+2));
+          } else {
+            // red/purple existing behavior
+            if(e.type==="purple") money += 10;
+            else money += 5;
+            updateMoneyUI();
+            if(e.type==="purple"){
+              const roll = Math.random();
+              if(roll<0.33) drops.push(new Drop(e.x,e.y,"bomb"));
+              else if(roll<0.66) drops.push(new Drop(e.x,e.y,"shield"));
+              else drops.push(new Drop(e.x,e.y,"blackhole"));
+            }
           }
-          enemies.splice(i,1); spawnEnemy();
+          enemies.splice(i,1);
+          // spawn a replacement so game continues
+          spawnEnemy();
         }
         break;
       }
     }
-    if(dist(e,player)<e.radius+player.radius && !player.shielded){
+
+    // collision with player touching enemy
+    if(Math.hypot(e.x - player.x, e.y - player.y) < e.radius + player.radius && !player.shielded){
       endGame();
+      return;
     }
   }
 
@@ -1013,7 +1144,7 @@ function animate(){
     }
     d.draw();
     d.life--;
-    if(dist(d,player)<player.radius+d.radius){
+    if(Math.hypot(d.x - player.x, d.y - player.y) < player.radius + d.radius){
       // collect
       if(d.type==="bomb"){
         inventory.bomb++;
@@ -1026,6 +1157,14 @@ function animate(){
       if(d.type==="blackhole"){
         inventory.blackhole++;
         showPickupToast("Black Hole +1", d.x, d.y);
+      }
+      if(d.type==="rapid"){
+        inventory.rapid++;
+        showPickupToast("Rapid Fire +1", d.x, d.y);
+      }
+      if(d.type==="magnet"){
+        inventory.magnet++;
+        showPickupToast("Magnet +1", d.x, d.y);
       }
       updateInventoryUI();
       drops.splice(i,1);
