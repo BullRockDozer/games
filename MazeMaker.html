@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html>
 <head>
 <meta charset="UTF-8">
@@ -38,12 +39,34 @@
   }
   input[type="number"] { background:#222; color:#ddd; }
   .row { display:flex; gap:8px; }
-  @media print {
-    #controls { display:none; }
-    body { background:white; color:black; }
-    canvas { margin:auto; background:white !important; }
-  } 
-</style>
+  #progressContainer {
+    width: 220px;
+    text-align: center;
+    color: #ddd;
+    font-size: 14px;
+  }
+  #progressBar {
+    width: 100%;
+    height: 12px;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  #progressFill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00c853, #00b0ff);
+    transition: width 0.08s linear;
+  }
+
+@media print {
+#controls { display:none; }
+body { background:white; color:black; }
+canvas { margin:auto; background:white !important; }
+} </style>
+
 </head>
 <body>
 
@@ -60,6 +83,11 @@
   <button id="closeSolutionBtn" style="display:none;">CLOSE SOLVE</button>
   <button id="stopSolveBtn" style="display:none;">STOP SOLVING</button>
   <button id="goBackBtn">GO BACK</button>
+
+  <div id="progressContainer" style="display:none;">
+    <div id="progressText">Progress: 0%</div>
+    <div id="progressBar"><div id="progressFill"></div></div>
+  </div>
 </div>
 
 <script>
@@ -69,13 +97,18 @@ const ctx = canvas.getContext("2d");
 let rows = 30;
 let cols = 30;
 let size = 20;
-const borderLineWidth = 2;
+const borderLineWidth = 3;
 
 let grid = [];
 let stack = [];
 let mazeFinished = false;
 let interactivePath = null;
 let solving = false;
+
+let visitedCount = 0;
+let totalCells = 0;
+let generationAttempts = 0;
+const maxRegenerateAttempts = 6;
 
 class Cell {
   constructor(x, y) {
@@ -89,6 +122,7 @@ class Cell {
     const y = this.y * size;
     ctx.strokeStyle = "black";
     ctx.lineWidth = borderLineWidth;
+    ctx.lineJoin = "miter";
     if (this.walls.top)    { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x+size, y); ctx.stroke(); }
     if (this.walls.right)  { ctx.beginPath(); ctx.moveTo(x+size, y); ctx.lineTo(x+size, y+size); ctx.stroke(); }
     if (this.walls.bottom) { ctx.beginPath(); ctx.moveTo(x+size, y+size); ctx.lineTo(x, y+size); ctx.stroke(); }
@@ -123,70 +157,24 @@ function getNeighbors(cell) {
   return neighbors;
 }
 
-function generateMaze() {
-  fixInputLimits();
-  rows = clamp(parseInt(document.getElementById("rowsInput").value) || 30, 5, 100);
-  cols = clamp(parseInt(document.getElementById("colsInput").value) || 30, 5, 100);
-
-  size = Math.floor(Math.min(canvas.width / cols, canvas.height / rows));
-  if (size < 4) size = 4;
-
-  mazeFinished = false;
-  solving = false;
-  interactivePath = null;
-  document.getElementById("closeSolutionBtn").style.display = "none";
-  document.getElementById("stopSolveBtn").style.display = "none";
-  grid = [];
-  stack = [];
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  for (let y = 0; y < rows; y++) {
-    grid[y] = [];
-    for (let x = 0; x < cols; x++) {
-      grid[y][x] = new Cell(x, y);
-    }
-  }
-
-  let current = grid[0][0];
-  current.visited = true;
-
-  function step() {
-    let neighbors = getNeighbors(current);
-    if (neighbors.length > 0) {
-      let { cell: next, removeA, removeB } =
-        neighbors[Math.floor(Math.random() * neighbors.length)];
-      current.walls[removeA] = false;
-      next.walls[removeB] = false;
-      stack.push(current);
-      next.visited = true;
-      current = next;
-    } else if (stack.length > 0) {
-      current = stack.pop();
-    } else {
-      mazeFinished = true;
-      drawMaze();
-      return;
-    }
-    drawMaze();
-    requestAnimationFrame(step);
-  }
-
-  step();
+function updateProgress() {
+  const pct = Math.floor((visitedCount / Math.max(1, totalCells)) * 100);
+  const progressContainer = document.getElementById("progressContainer");
+  const progressText = document.getElementById("progressText");
+  const progressFill = document.getElementById("progressFill");
+  progressText.textContent = `Progress: ${pct}%`;
+  progressFill.style.width = `${pct}%`;
+  progressContainer.style.display = (mazeFinished ? "none" : "block");
 }
 
-function updateSolverButtons() {
-  const stopBtn = document.getElementById("stopSolveBtn");
-  const closeBtn = document.getElementById("closeSolutionBtn");
-  if (solving) {
-    stopBtn.style.display = "inline-block";
-    closeBtn.style.display = "none";
-  } else {
-    stopBtn.style.display = "none";
-    closeBtn.style.display = "inline-block";
-  }
+function drawOuterBorder() {
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = borderLineWidth;
+  const offset = borderLineWidth / 2;
+  ctx.strokeRect(offset, offset, cols * size - borderLineWidth, rows * size - borderLineWidth);
 }
 
-function drawMaze(printText=false) {
+function drawMaze() {
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -196,9 +184,11 @@ function drawMaze(printText=false) {
     }
   }
 
+  drawOuterBorder();
+
   if (interactivePath && interactivePath.length > 0) {
-    let thin = Math.max(1, Math.floor(size * 0.3));
-    let bold = Math.max(1, Math.floor(size * 0.45));
+    let thin = Math.max(1, Math.floor(size * 0.22));
+    let bold = Math.max(1, Math.floor(size * 0.36));
 
     if (interactivePath.length > 2) {
       ctx.strokeStyle = "blue";
@@ -232,14 +222,113 @@ function drawMaze(printText=false) {
   ctx.fillStyle = "red";
   ctx.fillText("E", (cols - 1) * size + size * 0.28, (rows - 1) * size + size * 0.5);
 
-  if(printText){
-    ctx.fillStyle = "black";
-    ctx.font = `${Math.max(20, Math.floor(size * 0.8))}px Arial`;
-    ctx.textAlign = "center";
-    ctx.fillText("Mazemaker + print + solve!", canvas.width/2, canvas.height/2);
+  updateSolverButtons();
+  updateProgress();
+}
+
+function isSolvable() {
+  let visited = new Array(rows).fill(0).map(()=>new Array(cols).fill(false));
+  let q = [{x:0,y:0}];
+  visited[0][0] = true;
+  while (q.length > 0) {
+    const p = q.shift();
+    if (p.x === cols - 1 && p.y === rows - 1) return true;
+    const cell = grid[p.y][p.x];
+    if (!cell.walls.top && p.y > 0 && !visited[p.y-1][p.x]) { visited[p.y-1][p.x] = true; q.push({x:p.x,y:p.y-1}); }
+    if (!cell.walls.right && p.x < cols-1 && !visited[p.y][p.x+1]) { visited[p.y][p.x+1] = true; q.push({x:p.x+1,y:p.y}); }
+    if (!cell.walls.bottom && p.y < rows-1 && !visited[p.y+1][p.x]) { visited[p.y+1][p.x] = true; q.push({x:p.x,y:p.y+1}); }
+    if (!cell.walls.left && p.x > 0 && !visited[p.y][p.x-1]) { visited[p.y][p.x-1] = true; q.push({x:p.x-1,y:p.y}); }
+  }
+  return false;
+}
+
+function generateMaze() {
+  fixInputLimits();
+  rows = clamp(parseInt(document.getElementById("rowsInput").value) || 30, 5, 100);
+  cols = clamp(parseInt(document.getElementById("colsInput").value) || 30, 5, 100);
+  size = Math.floor(Math.min(canvas.width / cols, canvas.height / rows));
+  if (size < 4) size = 4;
+
+  mazeFinished = false;
+  solving = false;
+  interactivePath = null;
+  document.getElementById("closeSolutionBtn").style.display = "none";
+  document.getElementById("stopSolveBtn").style.display = "none";
+  document.getElementById("progressContainer").style.display = "block";
+
+  grid = [];
+  stack = [];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let y = 0; y < rows; y++) {
+    grid[y] = [];
+    for (let x = 0; x < cols; x++) {
+      grid[y][x] = new Cell(x, y);
+    }
   }
 
-  updateSolverButtons();
+  totalCells = rows * cols;
+  visitedCount = 0;
+  generationAttempts++;
+
+  let current = grid[0][0];
+  current.visited = true;
+  visitedCount++;
+
+  function step() {
+    let neighbors = getNeighbors(current);
+    if (neighbors.length > 0) {
+      let { cell: next, removeA, removeB } =
+        neighbors[Math.floor(Math.random() * neighbors.length)];
+      current.walls[removeA] = false;
+      next.walls[removeB] = false;
+      stack.push(current);
+      next.visited = true;
+      visitedCount++;
+      current = next;
+    } else if (stack.length > 0) {
+      current = stack.pop();
+    } else {
+      mazeFinished = true;
+      drawMaze();
+      setTimeout(() => {
+        const ok = isSolvable();
+        if (!ok && generationAttempts < maxRegenerateAttempts) {
+          console.warn("Maze failed solvability check — regenerating (attempt " + generationAttempts + ")");
+          generateMaze();
+        } else if (!ok) {
+          console.error("Maze failed solvability check after maximum attempts. Proceeding anyway.");
+          drawMaze();
+          document.getElementById("progressContainer").style.display = "none";
+        } else {
+          document.getElementById("progressContainer").style.display = "none";
+          generationAttempts = 0;
+          drawMaze();
+        }
+      }, 10);
+      return;
+    }
+    drawMaze();
+    updateProgress();
+    requestAnimationFrame(step);
+  }
+
+  step();
+}
+
+function updateSolverButtons() {
+  const stopBtn = document.getElementById("stopSolveBtn");
+  const closeBtn = document.getElementById("closeSolutionBtn");
+  const solveBtn = document.getElementById("solveBtn");
+  if (solving) {
+    stopBtn.style.display = "inline-block";
+    closeBtn.style.display = "none";
+    solveBtn.style.display = "none";
+  } else {
+    stopBtn.style.display = "none";
+    closeBtn.style.display = interactivePath ? "inline-block" : "none";
+    solveBtn.style.display = "inline-block";
+  }
 }
 
 function startInteractiveSolve() {
@@ -305,7 +394,6 @@ canvas.addEventListener("mousemove", (ev) => {
   movePlayer(dx, dy);
 });
 
-// Buttons
 document.getElementById("newMazeBtn").addEventListener("click", () => {
   if (solving) {
     if (!confirm("You're currently solving. Generate a new maze and lose progress?")) return;
@@ -317,11 +405,10 @@ document.getElementById("printBtn").addEventListener("click", () => {
   if (solving) { alert("Cannot print while solving!"); return; }
   if (!mazeFinished) { alert("Maze is still generating!"); return; }
 
-  // Draw "Mazemaker + print + solve!" on canvas for printing
-  drawMaze(true);
+  drawMaze(); // just draw maze, no text
   setTimeout(() => {
     window.print();
-    drawMaze(); // redraw normal maze after print
+    drawMaze();
   }, 100);
 });
 
@@ -343,6 +430,7 @@ document.getElementById("goBackBtn").addEventListener("click", () => {
   window.location.href = "index.html";
 });
 
+generationAttempts = 0;
 generateMaze();
 </script>
 
