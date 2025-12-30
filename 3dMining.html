@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>3D Block Game – Solid Walls + Jump</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+  /* Back button style */
+  #backButton {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    background-color: #fff;
+    border: 2px solid #000;
+    border-radius: 5px;
+  }
+  #backButton:hover {
+    background-color: #eee;
+  }
+</style>
+</head>
+<body>
+
+<button id="backButton">Back</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.155/build/three.min.js"></script>
+<script>
+/* ================== BACK BUTTON ================== */
+document.getElementById("backButton").addEventListener("click", ()=>{
+  window.location.href = "index.html";
+});
+
+/* ================== SETUP ================== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 2, 5);
+
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(5,10,5);
+scene.add(sun);
+
+/* ================== WORLD ================== */
+const WORLD_SIZE = 25;
+function insideWorld(pos){
+  return (
+    pos.x>=-WORLD_SIZE && pos.x<=WORLD_SIZE &&
+    pos.z>=-WORLD_SIZE && pos.z<=WORLD_SIZE &&
+    pos.y>=0 && pos.y<=WORLD_SIZE
+  );
+}
+
+/* ================== GROUND ================== */
+const ground = new THREE.Mesh(
+  new THREE.BoxGeometry(WORLD_SIZE*2,1,WORLD_SIZE*2),
+  new THREE.MeshLambertMaterial({color:0x3e7f3e})
+);
+ground.position.y=-0.5;
+scene.add(ground);
+
+/* ================== BLOCKS ================== */
+const blockGeo = new THREE.BoxGeometry(1,1,1);
+const normalMat = new THREE.MeshLambertMaterial({color:0x888888});
+const redMat = new THREE.MeshLambertMaterial({color:0xff3333});
+const blocks = [];
+
+/* ================== PREVIEW BLOCK ================== */
+const previewGeo = new THREE.EdgesGeometry(blockGeo);
+const previewMat = new THREE.LineBasicMaterial({color:0xffffff});
+const previewBlock = new THREE.LineSegments(previewGeo, previewMat);
+previewBlock.position.set(0,1,0);
+scene.add(previewBlock);
+
+/* ================== RAYCAST ================== */
+const raycaster = new THREE.Raycaster();
+let hoveredBlock = null;
+
+/* ================== MOUSE LOOK ================== */
+let yaw = 0, pitch = 0;
+document.body.addEventListener("click",()=>document.body.requestPointerLock());
+document.addEventListener("mousemove",e=>{
+  if(document.pointerLockElement!==document.body) return;
+  yaw -= e.movementX*0.002;
+  pitch -= e.movementY*0.002;
+  pitch = Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch));
+});
+
+/* ================== INPUT ================== */
+const keys = {};
+addEventListener("keydown", e=>keys[e.key.toLowerCase()] = true);
+addEventListener("keyup", e=>keys[e.key.toLowerCase()] = false);
+
+/* ================== BREAK BLOCK (B KEY) ================== */
+addEventListener("keydown", e=>{
+  if(e.key.toLowerCase()==="b" && hoveredBlock){
+    scene.remove(hoveredBlock);
+    blocks.splice(blocks.indexOf(hoveredBlock),1);
+    hoveredBlock = null;
+  }
+});
+
+/* ================== HOVER ================== */
+function updateHover(){
+  raycaster.setFromCamera({x:0,y:0},camera);
+  const hits = raycaster.intersectObjects(blocks);
+  hoveredBlock = null;
+  blocks.forEach(b=>b.material = normalMat);
+  if(hits.length){
+    hoveredBlock = hits[0].object;
+    hoveredBlock.material = redMat;
+  }
+}
+
+/* ================== PLACE BLOCK ================== */
+addEventListener("mousedown",e=>{
+  if(document.pointerLockElement!==document.body) return;
+  if(e.button!==0) return;
+
+  const block = new THREE.Mesh(blockGeo, normalMat);
+  block.position.copy(previewBlock.position);
+  if(!insideWorld(block.position)) return;
+  scene.add(block);
+  blocks.push(block);
+});
+addEventListener("contextmenu",e=>e.preventDefault());
+
+/* ================== RESIZE ================== */
+addEventListener("resize",()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+/* ================== COLLISION ================== */
+function collideAxis(pos){
+  const playerSize = 0.4; // half size
+  let newPos = pos.clone();
+  
+  for(const b of blocks){
+    const dx = b.position.x - newPos.x;
+    const dy = b.position.y - newPos.y;
+    const dz = b.position.z - newPos.z;
+    
+    if(Math.abs(dx)<1+playerSize && Math.abs(dy)<1+playerSize && Math.abs(dz)<1+playerSize){
+      if(Math.abs(dx) > Math.abs(dz)){
+        newPos.x = camera.position.x; 
+      } else {
+        newPos.z = camera.position.z; 
+      }
+      if(dy<0){ newPos.y = camera.position.y; }
+      break;
+    }
+  }
+  if(newPos.y < 1) newPos.y = 1;
+  return newPos;
+}
+
+/* ================== JUMP ================== */
+let yVelocity = 0;
+const gravity = -0.02;
+const jumpPower = 0.45;
+let onGround = false;
+
+/* ================== GAME LOOP ================== */
+function animate(){
+  requestAnimationFrame(animate);
+
+  camera.rotation.order="YXZ";
+  camera.rotation.y=yaw;
+  camera.rotation.x=pitch;
+
+  const forward=new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y=0;
+  forward.normalize();
+  const right=new THREE.Vector3().crossVectors(forward,camera.up).normalize();
+  const speed=0.12;
+
+  let nextPos = camera.position.clone();
+  if(keys["w"]) nextPos.add(forward.clone().multiplyScalar(speed));
+  if(keys["s"]) nextPos.add(forward.clone().multiplyScalar(-speed));
+  if(keys["a"]) nextPos.add(right.clone().multiplyScalar(-speed));
+  if(keys["d"]) nextPos.add(right.clone().multiplyScalar(speed));
+
+  if(keys[" "] && onGround){
+    yVelocity = jumpPower;
+    onGround = false;
+  }
+
+  yVelocity += gravity;
+  nextPos.y += yVelocity;
+
+  const collidedPos = collideAxis(nextPos);
+  onGround = collidedPos.y === camera.position.y;
+  yVelocity = onGround && yVelocity<0 ? 0 : yVelocity;
+
+  if(insideWorld(collidedPos)) camera.position.copy(collidedPos);
+
+  const step=1;
+  if(keys["arrowup"]){ previewBlock.position.z-=step; keys["arrowup"]=false; }
+  if(keys["arrowdown"]){ previewBlock.position.z+=step; keys["arrowdown"]=false; }
+  if(keys["arrowleft"]){ previewBlock.position.x-=step; keys["arrowleft"]=false; }
+  if(keys["arrowright"]){ previewBlock.position.x+=step; keys["arrowright"]=false; }
+  if(keys["p"]){ previewBlock.position.y+=step; keys["p"]=false; }
+  if(keys["l"]){ previewBlock.position.y-=step; keys["l"]=false; }
+
+  previewBlock.position.x=Math.round(previewBlock.position.x);
+  previewBlock.position.y=Math.round(previewBlock.position.y);
+  previewBlock.position.z=Math.round(previewBlock.position.z);
+
+  updateHover();
+  renderer.render(scene,camera);
+}
+animate();
+</script>
+
+</body>
+</html>
