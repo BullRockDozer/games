@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tower Defense - Full Refund Collect</title>
+<style>
+  body { margin:0; background:#111; overflow:hidden; font-family:sans-serif; color:white; }
+  #ui {
+    position:absolute; top:10px; left:10px;
+    background:rgba(0,0,0,0.6); padding:10px; border-radius:8px;
+  }
+  canvas { display:block; margin:auto; background:#222; }
+  button { margin:3px; padding:5px 10px; border:none; border-radius:6px; cursor:pointer; }
+  #message { color:#ffcc00; font-weight:bold; margin-top:5px; min-height:18px; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div>💰 Money: <span id="money">100</span></div>
+  <div>❤️ Lives: <span id="lives">20</span></div>
+  <div>🌊 Wave: <span id="wave">1</span></div>
+  <hr>
+  <button id="tower1">Basic (50)</button>
+  <button id="tower2">Slow (70)</button>
+  <button id="tower3">Bomb (100)</button>
+  <button id="tower4">Fire (120)</button>
+  <div id="message"></div>
+</div>
+<canvas id="game" width="900" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const ui = {
+  moneyEl: document.getElementById("money"),
+  livesEl: document.getElementById("lives"),
+  waveEl: document.getElementById("wave"),
+  message: document.getElementById("message")
+};
+
+let money = 100, lives = 20, wave = 1;
+let towers = [], enemies = [], bullets = [], particles = [];
+let placingTower = null;
+let mouse = {x:0, y:0};
+
+const towerData = {
+  basic: {cost:50},
+  slow: {cost:70},
+  bomb: {cost:100},
+  fire: {cost:120}
+};
+
+document.getElementById("tower1").onclick = () => startPlacing("basic");
+document.getElementById("tower2").onclick = () => startPlacing("slow");
+document.getElementById("tower3").onclick = () => startPlacing("bomb");
+document.getElementById("tower4").onclick = () => startPlacing("fire");
+
+canvas.addEventListener("mousemove", e=>{
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener("click", ()=>{
+  if(placingTower){
+    const type = placingTower.type;
+    const cost = towerData[type].cost;
+    if(money >= cost){
+      towers.push(new Tower(mouse.x, mouse.y, type));
+      money -= cost;
+      ui.message.textContent = "";
+      placingTower = null;
+    } else {
+      ui.message.textContent = "❌ Not enough money!";
+    }
+  }
+});
+
+// 💰 Right-click to collect towers for FULL refund
+canvas.addEventListener("contextmenu", e=>{
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const tower = towers.find(t => Math.hypot(t.x - x, t.y - y) < 15);
+  if(tower){
+    const value = towerData[tower.type].cost; // full refund
+    money += value;
+    towers = towers.filter(t => t !== tower);
+    ui.message.textContent = `💰 Collected ${tower.type} tower (+${value})`;
+  }
+});
+
+function startPlacing(type){
+  const cost = towerData[type].cost;
+  if(money < cost){
+    ui.message.textContent = "❌ Not enough money!";
+    return;
+  }
+  placingTower = {type};
+  ui.message.textContent = "✅ Click on map to place your " + type + " tower!";
+}
+
+const path = [
+  {x:0, y:300},{x:200,y:300},{x:200,y:100},{x:500,y:100},
+  {x:500,y:400},{x:800,y:400},{x:900,y:400}
+];
+
+class Enemy{
+  constructor(){
+    this.x = path[0].x; this.y = path[0].y; this.i = 0;
+    this.hp = 40 + wave*7;
+    this.speed = 1.2 + wave*0.05;
+    this.burn = 0;
+  }
+  update(){
+    const next = path[this.i+1];
+    if(!next) return;
+    const dx = next.x - this.x, dy = next.y - this.y;
+    const d = Math.hypot(dx,dy);
+    if(d < this.speed){
+      this.i++;
+      if(!path[this.i+1]){ lives--; this.hp=0; }
+    } else {
+      this.x += dx/d * this.speed;
+      this.y += dy/d * this.speed;
+    }
+    if(this.burn>0){
+      this.hp -= 0.5;
+      this.burn--;
+      particles.push({x:this.x,y:this.y,dx:(Math.random()-0.5)*2,dy:-1,life:10,color:"red"});
+    }
+  }
+  draw(){
+    ctx.fillStyle="lime";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,10,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle="red";
+    ctx.fillRect(this.x-10,this.y-15,20,3);
+    ctx.fillStyle="lime";
+    ctx.fillRect(this.x-10,this.y-15,20*(this.hp/(40+wave*7)),3);
+  }
+}
+
+class Tower{
+  constructor(x,y,type){
+    this.x=x; this.y=y; this.type=type;
+    this.range = (type==="bomb"?150:type==="fire"?120:100);
+    this.fireRate = (type==="basic"?40:type==="slow"?60:type==="fire"?25:70);
+    this.timer=0;
+  }
+  update(){
+    this.timer--;
+    if(this.timer<=0){
+      const target = enemies.find(e=>Math.hypot(e.x-this.x,e.y-this.y)<this.range);
+      if(target){
+        this.timer=this.fireRate;
+        bullets.push(new Bullet(this.x,this.y,target,this.type));
+      }
+    }
+  }
+  draw(){
+    const colors = {basic:"skyblue", slow:"purple", bomb:"orange", fire:"red"};
+    ctx.fillStyle = colors[this.type];
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,12,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+class Bullet{
+  constructor(x,y,target,type){
+    this.x=x; this.y=y; this.target=target; this.type=type;
+    this.speed=7; this.life=100;
+  }
+  update(){
+    this.life--;
+    const dx=this.target.x-this.x, dy=this.target.y-this.y;
+    const d=Math.hypot(dx,dy);
+    if(d<8){
+      if(this.type==="bomb"){
+        enemies.forEach(e=>{
+          if(Math.hypot(e.x-this.x,e.y-this.y)<50) e.hp-=25;
+        });
+        for(let i=0;i<10;i++)
+          particles.push({x:this.x,y:this.y,dx:(Math.random()-0.5)*4,dy:(Math.random()-0.5)*4,life:20,color:"orange"});
+      } else if(this.type==="slow"){
+        this.target.hp -= 10;
+        this.target.speed *= 0.8;
+      } else if(this.type==="fire"){
+        this.target.hp -= 8;
+        this.target.burn = 100;
+      } else {
+        this.target.hp -= 15;
+      }
+      this.life=0;
+    } else {
+      this.x+=dx/d*this.speed;
+      this.y+=dy/d*this.speed;
+    }
+  }
+  draw(){
+    const colors = {basic:"white", slow:"violet", bomb:"orange", fire:"red"};
+    ctx.fillStyle=colors[this.type];
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,4,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function spawnWave(){
+  for(let i=0;i<5+wave;i++){
+    setTimeout(()=>{enemies.push(new Enemy());},i*800);
+  }
+}
+
+function update(){
+  enemies=enemies.filter(e=>e.hp>0);
+  bullets=bullets.filter(b=>b.life>0);
+  particles=particles.filter(p=>p.life>0);
+
+  enemies.forEach(e=>e.update());
+  towers.forEach(t=>t.update());
+  bullets.forEach(b=>b.update());
+  particles.forEach(p=>{p.x+=p.dx; p.y+=p.dy; p.life--;});
+
+  if(enemies.length===0 && lives>0){
+    wave++;
+    money += 50 + wave*10;
+    spawnWave();
+  }
+
+  ui.moneyEl.textContent=Math.floor(money);
+  ui.livesEl.textContent=lives;
+  ui.waveEl.textContent=wave;
+}
+
+function drawPath(){
+  ctx.strokeStyle="gray";
+  ctx.lineWidth=25;
+  ctx.beginPath();
+  ctx.moveTo(path[0].x,path[0].y);
+  for(let i=1;i<path.length;i++) ctx.lineTo(path[i].x,path[i].y);
+  ctx.stroke();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawPath();
+  enemies.forEach(e=>e.draw());
+  towers.forEach(t=>t.draw());
+  bullets.forEach(b=>b.draw());
+  particles.forEach(p=>{
+    ctx.fillStyle=p.color||"yellow";
+    ctx.fillRect(p.x,p.y,2,2);
+  });
+
+  if(placingTower){
+    const type = placingTower.type;
+    ctx.strokeStyle="white";
+    ctx.beginPath();
+    ctx.arc(mouse.x,mouse.y,12,0,Math.PI*2);
+    ctx.stroke();
+    ctx.strokeStyle="rgba(255,255,255,0.2)";
+    ctx.beginPath();
+    const range = (type==="bomb"?150:type==="fire"?120:100);
+    ctx.arc(mouse.x,mouse.y,range,0,Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function loop(){
+  update();
+  draw();
+  if(lives>0) requestAnimationFrame(loop);
+  else {
+    ctx.fillStyle="white";
+    ctx.font="40px sans-serif";
+    ctx.fillText("GAME OVER",350,300);
+  }
+}
+
+spawnWave();
+loop();
+</script>
+</body>
+</html>
